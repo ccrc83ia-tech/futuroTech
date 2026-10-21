@@ -46,11 +46,13 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 
 **Las otras 2 plantillas del sistema Python** (`PETICION-SALUD-V1`, `RECURSO-REPOSICION-V1`) quedan disponibles en `derecho_peticion/templates.json` para ampliar el seed cuando se requieran.
 
-**Gaps de producto pendientes (más allá de la verificación e2e):**
-- **Corpus legal base del RAG**: el seed `V2` no incluye documentos RAG (Constitución, Ley 1755/2015, Decreto 2591/1991). Sin fuentes, el modo estricto sin chunks escribirá `[texto no disponible en fuentes autorizadas]`.
-- **.docx modelo por plantilla**: `format_doc_name`/`format_doc_bytes` quedan NULL → sin preservación de membrete ni estructura extraída.
-- **Dato heredado a corregir**: DIAN / Supersalud / Superfinanciera comparten el NIT `800.197.268-4` en el JSON fuente (erróneo); reemplazar por los NIT reales si impacta los documentos. (El email inválido `consumeratención@` de Superfinanciera ya fue corregido en el seed.)
-- Health check profundo, backups automáticos de Postgres/pgvector y disclaimer de IA visible: validar/completar según §12–14.
+**Gaps de producto — estado:**
+- ✅ **Corpus legal base del RAG**: sembrado vía `RagCorpusSeeder` (runtime, no Flyway — requiere embeddings de Ollama). Textos en `backend/src/main/resources/rag-corpus/` (Constitución art. 23/29/48/49/86, Ley 1755/2015, Decreto 2591/1991), asociados por plantilla. Idempotente (`hasDocuments`) y tolerante a Ollama caído (loguea y reintenta en el próximo arranque).
+- ✅ **Backups/restore**: `backup.ps1`/`backup.sh` (dump `pg_dump -Fc` con retención) y `restore.ps1`/`restore.sh` (`pg_restore --clean`). Carpeta `backups/` en `.gitignore`.
+- ✅ **Health check profundo** y **disclaimer de IA**: ya implementados (`OllamaHealthIndicator` + `circuitState()`; aviso BORRADOR en el wizard). Workflow de revisión `PUT /documents/{id}/review` (ABOGADO/ADMIN) y descarga `GET /documents/{id}/download` también presentes.
+- ⏳ **.docx modelo por plantilla**: `format_doc_name`/`format_doc_bytes` siguen NULL → sin membrete ni estructura extraída hasta que la firma cargue sus .docx (endpoint `POST /templates/{id}/format-doc` ya existe).
+- ⏳ **Dato heredado a corregir**: DIAN / Supersalud / Superfinanciera comparten el NIT `800.197.268-4` en el seed (erróneo en el JSON fuente). (El email inválido `consumeratención@` ya fue corregido.)
+- ⏳ **Backups automáticos** (programados) y habeas data (logs sin PII): pendiente agendar el script y auditar logs.
 
 ---
 

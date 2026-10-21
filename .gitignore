@@ -16,6 +16,9 @@ frontend/dist/
 .vscode/
 *.iml
 
+# Backups de base de datos
+backups/
+
 # OS
 .DS_Store
 Thumbs.db
