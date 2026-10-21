@@ -4,6 +4,40 @@
 
 ---
 
+## 🧭 ESTADO DE LA MIGRACIÓN (continuar desde aquí)
+
+Fuente de referencia (sistema Python original): `c:\proyecto\derecho_peticion` — especificación ejecutable, no se toca.
+Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base package `com.futurotech.legal`.
+
+| Fase | Descripción | Estado |
+|---|---|---|
+| 0 | Scaffolding (Gradle, Docker Compose, Flyway base, React/Vite) | ✅ Completa |
+| 1 | Dominio hexagonal + persistencia JPA + Flyway V1 | ✅ Completa |
+| 2 | Auth JWT + RBAC (BCrypt, Spring Security stateless) | ✅ Completa |
+| 3 | CRUD REST (users, templates, entities, company) con `@PreAuthorize` | ✅ Completa |
+| 4 | Generación + RAG (Ollama+Resilience4j, pgvector, prompt estricto, DOCX/PDF, auditoría) | ✅ Completa |
+| 5 | Frontend React (wizard, admin pages) | ✅ Completa |
+| 6 | Infra completa + datos semilla + corte | ⏳ Pendiente |
+
+**Commit de referencia:** `a70fff3` ("feat: migracion a Java 21 + Spring Boot 4 (Fases 0-4)"). Fases 0-5 commiteadas.
+
+**Fase 5 — completa:**
+- ✅ API client axios (`src/api/`: types, client con refresh JWT, endpoints)
+- ✅ Store Zustand (`src/store/auth.ts`) + ProtectedRoute + AppLayout
+- ✅ Páginas: Login, GenerateWizard (3 pasos), MyDocuments, Templates, Entities, Users, Company
+- ✅ Routing en `App.tsx`
+- ✅ `npm run build` verde (tsc -b + vite build). Fix: MUI 6.5 usa `Grid2` para el API con `size`; se migraron `CompanyPage` y `GenerateWizard`.
+
+**Verificaciones pendientes (requieren Docker/Ollama, no disponibles en el entorno de desarrollo actual):**
+- Test de persistencia Testcontainers (omitido sin Docker).
+- Generación end-to-end, embeddings, búsqueda pgvector.
+- Preservación byte-a-byte del DOCX con documentos modelo reales (el reemplazo del cuerpo usa manipulación de string del `document.xml`; validar con .docx complejos: tablas, saltos de sección).
+- Flujo HTTP real con seguridad (solo hay tests unitarios de servicio, no MockMvc/contexto).
+
+**Al retomar:** continuar Fase 5 corriendo `npm run build` en `frontend/`, corregir errores de TS si los hay, luego commitear la Fase 5 y pasar a la Fase 6 (Docker Compose completo, datos semilla con prompts jurídicos de las 3 plantillas, script de importación one-shot).
+
+---
+
 ## 1. Objetivo y principios
 
 Migrar **la lógica de negocio que aporta valor**, descartar el andamiaje accidental, mejorar donde se pueda, y entregar un **frontend intuitivo pensado para abogados**.
