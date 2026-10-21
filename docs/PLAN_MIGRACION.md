@@ -17,7 +17,7 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 | 3 | CRUD REST (users, templates, entities, company) con `@PreAuthorize` | ✅ Completa |
 | 4 | Generación + RAG (Ollama+Resilience4j, pgvector, prompt estricto, DOCX/PDF, auditoría) | ✅ Completa |
 | 5 | Frontend React (wizard, admin pages) | ✅ Completa |
-| 6 | Infra completa + datos semilla + corte | ⏳ Pendiente |
+| 6 | Infra completa + datos semilla + corte | ✅ Completa (código); verificación e2e requiere Docker |
 
 **Commit de referencia:** `a70fff3` ("feat: migracion a Java 21 + Spring Boot 4 (Fases 0-4)"). Fases 0-5 commiteadas.
 
@@ -34,7 +34,13 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 - Preservación byte-a-byte del DOCX con documentos modelo reales (el reemplazo del cuerpo usa manipulación de string del `document.xml`; validar con .docx complejos: tablas, saltos de sección).
 - Flujo HTTP real con seguridad (solo hay tests unitarios de servicio, no MockMvc/contexto).
 
-**Al retomar:** continuar Fase 5 corriendo `npm run build` en `frontend/`, corregir errores de TS si los hay, luego commitear la Fase 5 y pasar a la Fase 6 (Docker Compose completo, datos semilla con prompts jurídicos de las 3 plantillas, script de importación one-shot).
+**Fase 6 — completa (código):**
+- ✅ Datos semilla vía Flyway `V2__seed_data.sql`: tenant `estufuturo-legal` (branding camelCase), 3 plantillas (`PETICION-GENERAL-V1`, `PETICION-PENSIONAL-V1`, `ACCION-TUTELA-V1`) con system_prompt + legal_rules, y 20 entidades. Idempotente (`ON CONFLICT DO NOTHING`). `fields` sembrado como array de keys (el dominio `Template.fields` es `List<String>`; labels/required viven en el front).
+- ✅ Docker Compose completo: servicio `ollama-init` que hace `ollama pull` de los modelos de generación y embeddings una sola vez; el backend espera a que termine (`service_completed_successfully`).
+- ✅ Scripts de arranque de un comando: `start.ps1` (Windows) y `start.sh` (Unix) — crean `.env` con `JWT_SECRET` aleatorio y levantan el stack.
+- ⏳ **Verificación e2e pendiente (requiere Docker, no disponible en este entorno):** `docker compose up`, ejecución real de Flyway V2, descarga de modelos Ollama, login con credenciales del primer arranque, generación + RAG + descarga DOCX/PDF.
+
+**Las otras 2 plantillas del sistema Python** (`PETICION-SALUD-V1`, `RECURSO-REPOSICION-V1`) quedan disponibles en `derecho_peticion/templates.json` para ampliar el seed cuando se requieran.
 
 ---
 
