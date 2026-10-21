@@ -19,7 +19,11 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 | 5 | Frontend React (wizard, admin pages) | ✅ Completa |
 | 6 | Infra completa + datos semilla + corte | ✅ Completa (código); verificación e2e requiere Docker |
 
-**Commit de referencia:** `a70fff3` ("feat: migracion a Java 21 + Spring Boot 4 (Fases 0-4)"). Fases 0-5 commiteadas.
+**Commit de referencia:** `a70fff3` ("feat: migracion a Java 21 + Spring Boot 4 (Fases 0-4)"). Fases 0-6 commiteadas (Fase 5 y Fase 6 en commits posteriores en la rama `feature/migracion`).
+
+**Credenciales de desarrollo (sembradas en Flyway `V2`):** usuarios `admin`, `abogado`, `pasante`, `consulta`, todos con contraseña `Admin12345*` (hash BCrypt cost 10 verificado). Al estar sembrados, `AuthService.ensureDefaultUsers()` no genera contraseñas aleatorias. **En producción: eliminar esos INSERT (o cambiar la contraseña tras el primer login).**
+
+**Entorno de desarrollo actual:** solo Java 21 + Node/npm. Sin Docker, Postgres ni Ollama → el backend no puede arrancar en local (el frontend sí: `npm run dev` en `http://localhost:5173`).
 
 **Fase 5 — completa:**
 - ✅ API client axios (`src/api/`: types, client con refresh JWT, endpoints)
@@ -41,6 +45,12 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 - ⏳ **Verificación e2e pendiente (requiere Docker, no disponible en este entorno):** `docker compose up`, ejecución real de Flyway V2, descarga de modelos Ollama, login con credenciales del primer arranque, generación + RAG + descarga DOCX/PDF.
 
 **Las otras 2 plantillas del sistema Python** (`PETICION-SALUD-V1`, `RECURSO-REPOSICION-V1`) quedan disponibles en `derecho_peticion/templates.json` para ampliar el seed cuando se requieran.
+
+**Gaps de producto pendientes (más allá de la verificación e2e):**
+- **Corpus legal base del RAG**: el seed `V2` no incluye documentos RAG (Constitución, Ley 1755/2015, Decreto 2591/1991). Sin fuentes, el modo estricto sin chunks escribirá `[texto no disponible en fuentes autorizadas]`.
+- **.docx modelo por plantilla**: `format_doc_name`/`format_doc_bytes` quedan NULL → sin preservación de membrete ni estructura extraída.
+- **Dato heredado a corregir**: DIAN / Supersalud / Superfinanciera comparten el NIT `800.197.268-4` en el JSON fuente (erróneo); reemplazar por los NIT reales si impacta los documentos. (El email inválido `consumeratención@` de Superfinanciera ya fue corregido en el seed.)
+- Health check profundo, backups automáticos de Postgres/pgvector y disclaimer de IA visible: validar/completar según §12–14.
 
 ---
 

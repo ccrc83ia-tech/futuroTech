@@ -88,3 +88,19 @@ INSERT INTO entities (entity_id, name, nit, address, city, phone, email, legal_r
     ('epm-001', 'EPM — Empresas Públicas de Medellín', '890.904.996-1', 'Carrera 58 No. 42-125', 'Medellín', '604 444-1414', 'servicioalcliente@epm.com.co', 'Gerente General EPM', 'Empresa de Servicios Públicos', 'Presta servicios de energía, agua, gas y telecomunicaciones.'),
     ('eaab-001', 'EAAB — Empresa de Acueducto de Bogotá', '899.999.094-5', 'Calle 24 No. 37-15', 'Bogotá D.C.', '601 344-4000', 'servicioalcliente@acueducto.com.co', 'Gerente General EAAB', 'Empresa de Servicios Públicos', 'Presta servicios de acueducto y alcantarillado en Bogotá.')
 ON CONFLICT (entity_id) DO NOTHING;
+
+-- --- Usuarios por defecto con contraseña CONOCIDA (desarrollo) ---
+-- Contraseña para los cuatro: Admin12345*
+-- Hash BCrypt (cost 10) verificado contra BCryptPasswordEncoder de Spring Security.
+-- Al sembrarlos aquí, AuthService.ensureDefaultUsers() los detecta y NO genera
+-- usuarios con contraseña aleatoria (la tabla ya no está vacía).
+-- NOTA SEGURIDAD: esto es para arranque local/desarrollo. En producción,
+-- eliminar estos INSERT y dejar que el primer arranque genere contraseñas aleatorias,
+-- o cambiar la contraseña tras el primer login.
+-- permissions = NULL  => cada usuario usa los permisos por defecto de su rol.
+INSERT INTO users (user_id, username, full_name, email, role, active, password_hash, permissions) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'admin',    'Administrador',  '', 'admin',    TRUE, '$2a$10$zK80u1LFflDgeXNKngX8lOAVNFJHDhMhHQFnPO8qxe9KFW8SikVWi', NULL),
+    ('00000000-0000-0000-0000-000000000002', 'abogado',  'Abogado',        '', 'abogado',  TRUE, '$2a$10$zK80u1LFflDgeXNKngX8lOAVNFJHDhMhHQFnPO8qxe9KFW8SikVWi', NULL),
+    ('00000000-0000-0000-0000-000000000003', 'pasante',  'Pasante',        '', 'pasante',  TRUE, '$2a$10$zK80u1LFflDgeXNKngX8lOAVNFJHDhMhHQFnPO8qxe9KFW8SikVWi', NULL),
+    ('00000000-0000-0000-0000-000000000004', 'consulta', 'Solo Consulta',  '', 'consulta', TRUE, '$2a$10$zK80u1LFflDgeXNKngX8lOAVNFJHDhMhHQFnPO8qxe9KFW8SikVWi', NULL)
+ON CONFLICT (username) DO NOTHING;
