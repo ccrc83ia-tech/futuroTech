@@ -1,0 +1,11 @@
+# Config de test. JWT secret dummy para que el contexto arranque en tests de integración.
+security:
+  jwt:
+    secret: test-secret-key-para-tests-unitarios-min-32-bytes-0123456789
+    ttl-seconds: 3600
+    refresh-ttl-seconds: 7200
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate

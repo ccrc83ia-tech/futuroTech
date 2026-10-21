@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: futurotech-legal
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/legal_engine}
+    username: ${DB_USER:legal}
+    password: ${DB_PASSWORD:secret}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+server:
+  port: ${API_PORT:8080}
+
+# --- IA (Ollama local) ---
+ollama:
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  generation-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
+  embedding-model: ${OLLAMA_EMBED_MODEL:nomic-embed-text}
+  timeout-seconds: ${OLLAMA_TIMEOUT:120}
+
+# --- RAG ---
+rag:
+  chunk-size: ${RAG_CHUNK_SIZE:1500}
+  chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
+  max-file-mb: ${RAG_MAX_FILE_MB:20}
+
+# --- Documentos generados ---
+docs:
+  output-dir: ${DOCS_OUTPUT_DIR:generated_docs}
+
+# --- Seguridad / JWT ---
+security:
+  jwt:
+    secret: ${JWT_SECRET:}            # obligatorio en producción
+    ttl-seconds: ${JWT_TTL:28800}     # 8 horas
+    refresh-ttl-seconds: ${JWT_REFRESH_TTL:604800}
+
+# --- Resilience4j (circuit breaker + retry para Ollama) ---
+resilience4j:
+  circuitbreaker:
+    instances:
+      ollama:
+        failure-rate-threshold: 50
+        sliding-window-size: 10
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+  retry:
+    instances:
+      ollama:
+        max-attempts: 3
+        wait-duration: 2s
+        exponential-backoff-multiplier: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.futurotech.legal: INFO
