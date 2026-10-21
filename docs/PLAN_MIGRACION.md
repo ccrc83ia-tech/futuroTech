@@ -50,9 +50,12 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 - ✅ **Corpus legal base del RAG**: sembrado vía `RagCorpusSeeder` (runtime, no Flyway — requiere embeddings de Ollama). Textos en `backend/src/main/resources/rag-corpus/` (Constitución art. 23/29/48/49/86, Ley 1755/2015, Decreto 2591/1991), asociados por plantilla. Idempotente (`hasDocuments`) y tolerante a Ollama caído (loguea y reintenta en el próximo arranque).
 - ✅ **Backups/restore**: `backup.ps1`/`backup.sh` (dump `pg_dump -Fc` con retención) y `restore.ps1`/`restore.sh` (`pg_restore --clean`). Carpeta `backups/` en `.gitignore`.
 - ✅ **Health check profundo** y **disclaimer de IA**: ya implementados (`OllamaHealthIndicator` + `circuitState()`; aviso BORRADOR en el wizard). Workflow de revisión `PUT /documents/{id}/review` (ABOGADO/ADMIN) y descarga `GET /documents/{id}/download` también presentes.
-- ⏳ **.docx modelo por plantilla**: `format_doc_name`/`format_doc_bytes` siguen NULL → sin membrete ni estructura extraída hasta que la firma cargue sus .docx (endpoint `POST /templates/{id}/format-doc` ya existe).
-- ⏳ **Dato heredado a corregir**: DIAN / Supersalud / Superfinanciera comparten el NIT `800.197.268-4` en el seed (erróneo en el JSON fuente). (El email inválido `consumeratención@` ya fue corregido.)
-- ⏳ **Backups automáticos** (programados) y habeas data (logs sin PII): pendiente agendar el script y auditar logs.
+- ✅ **NIT heredado corregido**: `V3__fix_entity_nit.sql` marca `supersalud`/`superfinanciera` como `POR VERIFICAR` (no se fabrican NIT; la firma los confirma con fuente oficial). DIAN conserva el suyo.
+- ✅ **Habeas data (logs sin PII)**: auditados los 9 puntos de logging — ninguno emite nombres, cédulas ni hechos del caso (solo `transactionId`/ids/longitudes). Política documentada en `docs/OPERACION.md §4`.
+- ✅ **Operación documentada**: `docs/OPERACION.md` (arranque, credenciales, backups + agendamiento cron/Task Scheduler, restauración, habeas data, .docx modelo, troubleshooting).
+- ⏳ **.docx modelo por plantilla** (depende de la firma): `format_doc_name`/`format_doc_bytes` NULL hasta que se carguen vía `POST /templates/{id}/format-doc`.
+- ⏳ **Backup automático**: el script existe y el agendamiento está documentado; falta programarlo en el servidor real.
+- ⏳ **Verificación e2e** (requiere Docker/Postgres/Ollama): único bloque que no se puede ejecutar en este entorno.
 
 ---
 
