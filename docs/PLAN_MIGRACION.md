@@ -55,7 +55,7 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 - ✅ **Operación documentada**: `docs/OPERACION.md` (arranque, credenciales, backups + agendamiento cron/Task Scheduler, restauración, habeas data, .docx modelo, troubleshooting).
 - ⏳ **.docx modelo por plantilla** (depende de la firma): `format_doc_name`/`format_doc_bytes` NULL hasta que se carguen vía `POST /templates/{id}/format-doc`.
 - ⏳ **Backup automático**: el script existe y el agendamiento está documentado; falta programarlo en el servidor real.
-- ⏳ **Verificación e2e** (requiere Docker/Postgres/Ollama): único bloque que no se puede ejecutar en este entorno.
+- ⏳ **Verificación e2e** (requiere Docker/Postgres/Ollama): único bloque que no se puede ejecutar en este entorno. **Checklist de pruebas listo en `docs/OPERACION.md §7`** para ejecutar en un host con Docker.
 
 ---
 

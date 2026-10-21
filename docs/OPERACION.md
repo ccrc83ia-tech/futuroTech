@@ -121,3 +121,61 @@ Mientras no se cargue, la generación produce el texto sin membrete. Verificar q
 - **El modo estricto responde `[texto no disponible en fuentes autorizadas]`:** el corpus
   RAG no se sembró (Ollama no respondía al arrancar). Reiniciar el backend una vez que
   Ollama esté arriba.
+
+---
+
+## 7. Checklist de verificación e2e (ejecutar en una máquina con Docker)
+
+Esta migración se desarrolló en un entorno sin Docker/Postgres/Ollama. Antes de dar
+el corte por bueno, ejecutar esta lista en un host con Docker. Marca cada punto.
+
+### Infraestructura
+- [ ] `docker compose config --quiet` no reporta errores de sintaxis.
+- [ ] `.\start.ps1` (o `./start.sh`) levanta los 4 servicios + `ollama-init`.
+- [ ] `docker compose ps`: `db` en estado `healthy`; `ollama-init` terminó con éxito (exit 0).
+- [ ] `ollama-init` descargó los modelos: `docker compose exec ollama ollama list`
+      muestra `qwen2.5:7b` y `nomic-embed-text`.
+
+### Base de datos y migraciones
+- [ ] Flyway aplicó V1, V2 y V3 sin error: `docker compose logs backend | Select-String "Flyway|Migrating|Successfully applied"`.
+- [ ] Datos semilla presentes: 1 tenant, 3 plantillas, 20 entidades (2 con NIT `POR VERIFICAR`).
+- [ ] La columna `template_chunks.embedding` es `vector(768)` y el índice HNSW existe.
+
+### Corpus RAG
+- [ ] Log de arranque muestra `Corpus RAG: ... chunks` para las 3 plantillas.
+- [ ] `hasDocuments` verdadero: en `template_chunks` hay filas para
+      `PETICION-GENERAL-V1`, `PETICION-PENSIONAL-V1`, `ACCION-TUTELA-V1`.
+- [ ] Reiniciar el backend NO duplica chunks (idempotencia del seeder).
+
+### Autenticación y RBAC
+- [ ] Login `admin` / `Admin12345*` devuelve JWT + refresh.
+- [ ] Refresh token renueva el acceso.
+- [ ] Un usuario `consulta` NO puede generar ni administrar (403 esperado).
+- [ ] Solo `abogado`/`admin` pueden `PUT /documents/{id}/review`.
+
+### Generación + RAG + export
+- [ ] `POST /api/v1/documents/generate` produce un documento en estado `DRAFT`.
+- [ ] Con corpus cargado y modo estricto, el texto cita normas de las fuentes
+      (NO aparece `[texto no disponible en fuentes autorizadas]`).
+- [ ] `GET /api/v1/documents/{id}/download` descarga el archivo.
+- [ ] Se registró la auditoría en `generated_document` (autor, plantilla, timestamp, hash).
+
+### DOCX byte-a-byte (punto de riesgo)
+- [ ] Cargar un `.docx` modelo real de la firma vía `POST /templates/{id}/format-doc`.
+- [ ] Generar y abrir el `.docx` en Word: membrete, tablas, saltos de sección y
+      campos se conservan intactos.
+- [ ] Exportar a PDF conserva el membrete.
+
+### Salud y resiliencia
+- [ ] `GET /health` reporta `UP` con detalle de DB, pgvector y Ollama.
+- [ ] Detener `ollama` y generar: el circuit breaker abre y el error al usuario es
+      claro en español (no stack trace). `/health` refleja el estado degradado.
+
+### Frontend
+- [ ] Login, wizard de 3 pasos, "Mis documentos" y páginas admin navegan sin errores.
+- [ ] El disclaimer de IA (BORRADOR) es visible en el resultado de la generación.
+- [ ] El build de producción servido por Nginx carga en http://localhost.
+
+### Backups
+- [ ] `.\backup.ps1` genera un `.dump` en `backups/`.
+- [ ] `.\restore.ps1` sobre una BD modificada restaura el estado del dump.
