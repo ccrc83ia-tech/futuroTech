@@ -15,6 +15,10 @@ import com.lowagie.text.Element;
 import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
 import com.lowagie.text.Paragraph;
+import com.lowagie.text.Phrase;
+import com.lowagie.text.pdf.PdfContentByte;
+import com.lowagie.text.pdf.PdfGState;
+import com.lowagie.text.pdf.PdfPageEventHelper;
 import com.lowagie.text.pdf.PdfWriter;
 
 /** Generación de PDF con membrete usando OpenPDF. */
@@ -27,6 +31,15 @@ public class PdfExporter {
      * PDF sin volver a invocar a la IA ni almacenar un segundo artefacto.
      */
     public byte[] buildFromDocx(byte[] docxBytes, Branding branding) {
+        return buildFromDocx(docxBytes, branding, null);
+    }
+
+    /**
+     * Igual que {@link #buildFromDocx(byte[], Branding)} pero estampa una marca de
+     * agua diagonal en cada página cuando {@code watermark} no es nulo/vacío
+     * (p. ej. "BORRADOR" mientras el documento no esté aprobado).
+     */
+    public byte[] buildFromDocx(byte[] docxBytes, Branding branding, String watermark) {
         String text;
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(docxBytes));
                 XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
@@ -34,13 +47,20 @@ public class PdfExporter {
         } catch (Exception e) {
             throw new DocumentGenerationException("No se pudo convertir el documento a PDF", e);
         }
-        return build(text, branding);
+        return build(text, branding, watermark);
     }
 
     public byte[] build(String content, Branding branding) {
+        return build(content, branding, null);
+    }
+
+    public byte[] build(String content, Branding branding, String watermark) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Document doc = new Document();
-            PdfWriter.getInstance(doc, out);
+            PdfWriter writer = PdfWriter.getInstance(doc, out);
+            if (watermark != null && !watermark.isBlank()) {
+                writer.setPageEvent(new WatermarkEvent(watermark));
+            }
             doc.open();
 
             if (branding != null && branding.headerText() != null && !branding.headerText().isBlank()) {
@@ -81,5 +101,34 @@ public class PdfExporter {
 
     private static String safeColor(String hex) {
         return (hex != null && hex.matches("#[0-9a-fA-F]{6}")) ? hex : "#000000";
+    }
+
+    /**
+     * Estampa una marca de agua diagonal, gris y translúcida, centrada en cada
+     * página. Se usa para rotular los borradores ("BORRADOR") de forma que quede
+     * claro que el documento aún no fue aprobado por un abogado.
+     */
+    private static final class WatermarkEvent extends PdfPageEventHelper {
+
+        private final String text;
+
+        private WatermarkEvent(String text) {
+            this.text = text;
+        }
+
+        @Override
+        public void onEndPage(PdfWriter writer, Document document) {
+            PdfContentByte canvas = writer.getDirectContentUnder();
+            canvas.saveState();
+            PdfGState gs = new PdfGState();
+            gs.setFillOpacity(0.18f);
+            canvas.setGState(gs);
+            Font font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 72, new Color(150, 150, 150));
+            float x = (document.getPageSize().getLeft() + document.getPageSize().getRight()) / 2;
+            float y = (document.getPageSize().getTop() + document.getPageSize().getBottom()) / 2;
+            com.lowagie.text.pdf.ColumnText.showTextAligned(
+                    canvas, Element.ALIGN_CENTER, new Phrase(text, font), x, y, 45);
+            canvas.restoreState();
+        }
     }
 }

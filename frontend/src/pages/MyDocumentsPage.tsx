@@ -10,6 +10,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -72,24 +73,90 @@ export default function MyDocumentsPage() {
           description="Los documentos que genere aparecerán aquí para descargarlos y revisarlos."
         />
       ) : (
-        <Table>
+        <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Plantilla</TableCell>
+              <TableCell>Tipo</TableCell>
+              <TableCell>Cliente</TableCell>
+              <TableCell>Dirigido a</TableCell>
+              <TableCell>Generado por</TableCell>
               <TableCell>Fecha</TableCell>
               <TableCell>Estado</TableCell>
+              <TableCell>Revisado por</TableCell>
               <TableCell align="right">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {data.map((d) => (
               <TableRow key={d.transactionId} hover>
-                <TableCell>{templateName(d.templateId)}</TableCell>
-                <TableCell>{new Date(d.createdAt).toLocaleString("es-CO")}</TableCell>
-                <TableCell>
-                  <Chip label={STATUS_LABEL[d.status]} color={STATUS_COLOR[d.status]} size="small" />
+                {/* Tipo de documento */}
+                <TableCell sx={{ maxWidth: 160 }}>
+                  <Tooltip title={templateName(d.templateId)}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {templateName(d.templateId)}
+                    </span>
+                  </Tooltip>
                 </TableCell>
-                <TableCell align="right">
+
+                {/* Cliente del caso */}
+                <TableCell sx={{ maxWidth: 140 }}>
+                  <Tooltip title={d.clientName ?? "—"}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.clientName ?? <Typography component="span" variant="body2" color="text.disabled">—</Typography>}
+                    </span>
+                  </Tooltip>
+                </TableCell>
+
+                {/* Entidad destinataria */}
+                <TableCell sx={{ maxWidth: 160 }}>
+                  <Tooltip title={d.entityName ?? d.entityId ?? "Sin entidad"}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.entityName
+                        ? d.entityName
+                        : <Typography component="span" variant="body2" color="text.disabled">Sin entidad</Typography>}
+                    </span>
+                  </Tooltip>
+                </TableCell>
+
+                {/* Autor */}
+                <TableCell sx={{ maxWidth: 120 }}>
+                  <Typography variant="body2" noWrap>
+                    {d.authorUserId ?? "—"}
+                  </Typography>
+                </TableCell>
+
+                {/* Fecha de creación */}
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  {new Date(d.createdAt).toLocaleString("es-CO", {
+                    day: "2-digit", month: "2-digit", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                </TableCell>
+
+                {/* Estado */}
+                <TableCell>
+                  <Chip
+                    label={STATUS_LABEL[d.status]}
+                    color={STATUS_COLOR[d.status]}
+                    size="small"
+                  />
+                </TableCell>
+
+                {/* Revisado por + fecha */}
+                <TableCell sx={{ maxWidth: 160 }}>
+                  {d.reviewedBy ? (
+                    <Tooltip title={d.reviewedAt
+                      ? new Date(d.reviewedAt).toLocaleString("es-CO")
+                      : d.reviewedBy}>
+                      <Typography variant="body2" noWrap>{d.reviewedBy}</Typography>
+                    </Tooltip>
+                  ) : (
+                    <Typography variant="body2" color="text.disabled">—</Typography>
+                  )}
+                </TableCell>
+
+                {/* Acciones */}
+                <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                   <Button
                     size="small"
                     startIcon={<DownloadIcon />}

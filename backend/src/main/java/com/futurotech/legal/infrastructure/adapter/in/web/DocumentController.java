@@ -38,10 +38,12 @@ import com.futurotech.legal.domain.model.GeneratedDocument;
 import com.futurotech.legal.domain.model.TenantConfig;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
+import com.futurotech.legal.domain.port.out.EntityRepositoryPort;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
+import com.futurotech.legal.infrastructure.adapter.out.export.DocxWatermarkStamper;
 import com.futurotech.legal.infrastructure.adapter.out.export.PdfExporter;
 import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
 
@@ -51,22 +53,30 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/v1/documents")
 public class DocumentController {
 
+    /** Texto de la marca de agua para documentos en borrador. */
+    private static final String DRAFT_WATERMARK = "BORRADOR";
+
     private final GenerateDocumentUseCase generateUseCase;
     private final GeneratedDocumentPort auditTrail;
     private final CompanyService companyService;
     private final CaseDocumentExtractor caseDocumentExtractor;
     private final PdfExporter pdfExporter;
+    private final DocxWatermarkStamper watermarkStamper;
+    private final EntityRepositoryPort entityRepo;
     private final Path outputDir;
 
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
                               CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
-                              PdfExporter pdfExporter,
+                              PdfExporter pdfExporter, DocxWatermarkStamper watermarkStamper,
+                              EntityRepositoryPort entityRepo,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
         this.generateUseCase = generateUseCase;
         this.auditTrail = auditTrail;
         this.companyService = companyService;
         this.caseDocumentExtractor = caseDocumentExtractor;
         this.pdfExporter = pdfExporter;
+        this.watermarkStamper = watermarkStamper;
+        this.entityRepo = entityRepo;
         this.outputDir = Path.of(outputDir);
     }
 
@@ -118,7 +128,7 @@ public class DocumentController {
     @GetMapping("/mine")
     @PreAuthorize("hasAuthority('PERM_generate_document')")
     public List<GeneratedDocResponse> myDocuments(Authentication auth) {
-        return auditTrail.findByAuthor(auth.getName()).stream().map(DocumentController::toResponse).toList();
+        return auditTrail.findByAuthor(auth.getName()).stream().map(this::toResponse).toList();
     }
 
     /**
@@ -139,9 +149,15 @@ public class DocumentController {
         }
         byte[] docxBytes = Files.readAllBytes(file);
 
+        // Salvaguarda jurídica: mientras el documento esté en BORRADOR se estampa
+        // una marca de agua "BORRADOR" en la descarga (DOCX y PDF). Al aprobarse
+        // (APPROVED) se descarga limpio. La marca se aplica al vuelo según el
+        // estado actual, no se persiste en el archivo del disco.
+        String watermark = doc.status() == DocumentStatus.DRAFT ? DRAFT_WATERMARK : null;
+
         if ("pdf".equalsIgnoreCase(format)) {
             Branding branding = companyService.getActive().map(TenantConfig::branding).orElse(null);
-            byte[] pdf = pdfExporter.buildFromDocx(docxBytes, branding);
+            byte[] pdf = pdfExporter.buildFromDocx(docxBytes, branding, watermark);
             String pdfName = stripExtension(doc.fileName()) + ".pdf";
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + pdfName + "\"")
@@ -149,11 +165,12 @@ public class DocumentController {
                     .body(new ByteArrayResource(pdf));
         }
 
+        byte[] body = watermark != null ? watermarkStamper.stamp(docxBytes, watermark) : docxBytes;
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.fileName() + "\"")
                 .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                .body(new ByteArrayResource(docxBytes));
+                .body(new ByteArrayResource(body));
     }
 
     private static String stripExtension(String name) {
@@ -172,9 +189,18 @@ public class DocumentController {
                 .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
     }
 
-    private static GeneratedDocResponse toResponse(GeneratedDocument d) {
+    private GeneratedDocResponse toResponse(GeneratedDocument d) {
+        String clientName = d.caseFields() != null
+                ? d.caseFields().getOrDefault("cliente_nombre",
+                  d.caseFields().getOrDefault("cliente", null))
+                : null;
+        String entityName = d.entityId() != null
+                ? entityRepo.findById(d.entityId()).map(e -> e.name()).orElse(d.entityId())
+                : null;
         return new GeneratedDocResponse(
                 d.id().toString(), d.templateId(), d.status().name(), d.fileName(),
-                "/api/v1/documents/" + d.id() + "/download", d.createdAt());
+                "/api/v1/documents/" + d.id() + "/download", d.createdAt(),
+                clientName, d.entityId(), entityName, d.authorUserId(),
+                d.reviewedBy(), d.reviewedAt());
     }
 }

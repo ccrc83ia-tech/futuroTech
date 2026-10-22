@@ -75,6 +75,13 @@ export interface GeneratedDoc {
   fileName: string;
   downloadUrl: string;
   createdAt: string;
+  // Campos enriquecidos para trazabilidad
+  clientName: string | null;
+  entityId: string | null;
+  entityName: string | null;
+  authorUserId: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
 }
 
 export interface GenerateRequest {
