@@ -17,7 +17,7 @@ Motor Jurídico Universal. Migración desde un sistema Python (FastAPI + Streaml
 | IA generación | Groq por defecto (`GroqClient`, OpenAI-compatible). Modelo `openai/gpt-oss-120b`. Ollama on-premise conmutable con `ai.provider=ollama`. **Exactamente UN bean `AIServicePort` activo.** |
 | IA embeddings | Ollama local (`OllamaEmbeddingClient`), `nomic-embed-text`, 768 dims → `vector(768)` |
 | Resiliencia | Resilience4j (circuit breaker + retry) — instancias `groq` y `ollama` |
-| DOCX export | Apache POI + `DocxWatermarkStamper` (VML header con marca de agua) |
+| DOCX export | Apache POI (`DocxExporter`, cuerpo Cambria 14 justificado) + `DocxWatermarkStamper` (VML "BORRADOR") + `DocxSignatureStamper` (firma al aprobar) |
 | PDF export | OpenPDF (`com.github.librepdf:openpdf`, paquete `com.lowagie`) + `PdfExporter` con `WatermarkEvent` |
 | PDF extracción | Apache PDFBox 3 (extracción texto PDF en RAG y adjuntos) |
 | Auth | Spring Security + BCrypt + JWT (jjwt 0.12.6) — stateless, NO sesión |
@@ -35,6 +35,8 @@ Todas las tecnologías deben ser **open source / gratuitas para uso comercial**.
 - **Trazabilidad obligatoria:** toda generación en `generated_document` (append-only).
 - **Revisión humana obligatoria:** todo documento nace `DRAFT`; solo abogado/admin aprueba.
 - **Marca de agua:** documentos DRAFT incluyen "BORRADOR" en DOCX (header VML) y PDF (capa diagonal), aplicada al vuelo en la descarga sin tocar el archivo en disco.
+- **Formato de las minutas de la firma (TUFUTURO — Abogados en Pensiones):** el cuerpo generado sale en **Cambria 14 pt justificado** (replica las minutas reales). El membrete (logo + pie de dos oficinas Medellín/Pereira) y la estructura se preservan cargando un **`.docx` modelo por plantilla** (`format-doc`, modo `buildFromFormat`). El tenant real es "TUFUTURO — Abogados en Pensiones" (migración V5), aunque la PK del tenant sigue siendo `estufuturo-legal`.
+- **Firma manuscrita:** se estampa (vía `DocxSignatureStamper`) sobre la línea "Atentamente," **solo cuando el documento está APPROVED**, al vuelo en la descarga DOCX, excluyente con la marca de agua BORRADOR. Imagen configurable con `SIGNATURE_IMAGE_PATH`. Limitación: el PDF se reconstruye desde texto y no incluye la firma (usar DOCX). Los documentos revisados deben salir con el membrete de la empresa (depende de que la plantilla tenga `.docx` modelo cargado).
 - **Plazos jurídicos:** `deadline` calculado al generar según el tipo de plantilla (petición = 15 días hábiles, tutela = 10 días hábiles). Se muestra en el Dashboard y en la tabla de documentos.
 - **Radicado interno:** `internalDocket` registrable en cualquier estado (el abogado puede necesitarlo antes de aprobar el borrador, al presentarlo físicamente).
 - **Integración futura:** `ClientDataProviderPort` (gancho para traer datos del cliente del sistema de la firma; sin implementación en el MVP).
@@ -104,10 +106,11 @@ Reglas: los modelos de dominio son independientes de las `@Entity` JPA (mapeo ex
 |---|---|---|---|
 | POST | `/generate` (multipart) | `generate_document` | Genera documento. Parte `request` (JSON) + `attachments` (PDF/DOCX/TXT opcionales como hechos). |
 | GET | `/mine` | `generate_document` | Documentos del usuario autenticado |
-| GET | `/all` | `manage_users` | Todos los documentos (admin/abogado) |
-| GET | `/stats` | `manage_users` | Estadísticas: totalMonth, pendingReview, upcomingDeadlines, overdue, byTemplate |
-| GET | `/{id}/download?format=docx\|pdf` | `generate_document` | Descarga DOCX o PDF. DRAFT incluye marca de agua "BORRADOR". |
-| GET | `/{id}/text` | `generate_document` | Texto plano del documento generado |
+| GET | `/all` | `view_all_documents` | Todos los documentos del equipo (admin/abogado) |
+| GET | `/stats` | `view_all_documents` | Estadísticas: totalMonth, pendingReview, upcomingDeadlines, overdue, byTemplate |
+| GET | `/{id}/download?format=docx\|pdf` | `generate_document` | Descarga DOCX o PDF. DRAFT → marca de agua "BORRADOR"; APPROVED → firma estampada (DOCX). |
+| GET | `/{id}/text` | `generate_document` | Texto del documento con marcado Markdown básico |
+| PUT | `/{id}/content` | `generate_document` | Edita el cuerpo de un borrador (solo DRAFT); regenera el `.docx` y el hash |
 | PUT | `/{id}/review` | rol ABOGADO o ADMIN | Cambia estado: REVIEWED, APPROVED, VOID |
 | PUT | `/{id}/docket` | `generate_document` | Registra número de radicado interno |
 
@@ -134,6 +137,12 @@ Además de los campos base devuelve: `clientName` (de `caseFields["cliente_nombr
 
 ## Infraestructura de exportación
 
+### `DocxExporter`
+Dos modos: `buildFromFormat` (con `.docx` modelo) preserva el paquete OOXML (membrete, pie, estilos, `sectPr`/márgenes) y solo reemplaza el interior de `<w:body>`; `buildBranded` (sin modelo) construye con POI y branding de texto. En **ambos** el cuerpo sale en **Cambria 14 pt justificado, spacing after 0** (constantes `BODY_FONT`/`BODY_FONT_SIZE` + helpers `applyBodyRunStyle`/`applyBodyParagraphStyle`). Esta ruta la comparten la generación y la edición de borrador (`PUT /{id}/content`). Nota POI: `XWPFHeaderFooterPolicy` está en `org.apache.poi.xwpf.model`; `getFontSize()` deprecado → usar `getFontSizeAsDouble()`.
+
+### `DocxSignatureStamper`
+Inserta la imagen de firma (config `signature.image-path` / `SIGNATURE_IMAGE_PATH`, ancho/alto en pt) en un párrafo nuevo tras la línea "Atentamente,". Solo se aplica en `download` cuando `status == APPROVED` (excluyente con la marca de agua). Tolerante a fallos: sin imagen configurada, ruta ilegible o sin ancla devuelve el `.docx` intacto.
+
 ### `DocxWatermarkStamper`
 Opera sobre bytes de un `.docx` (ZIP/OOXML): inyecta `word/wmarkheader1.xml` (WordArt VML diagonal "BORRADOR"), la relación en `document.xml.rels`, el content-type en `[Content_Types].xml`, y `<w:headerReference>` en cada `<w:sectPr>` del `document.xml`. Tolerante a fallos: si algo va mal devuelve el DOCX original sin marca. Solo se aplica si `status == DRAFT`.
 
@@ -154,6 +163,23 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 | `V2__seed_data.sql` | Tenant, 3 plantillas, 20 entidades, 4 usuarios de desarrollo |
 | `V3__fix_entity_nit.sql` | NIT de supersalud/superfinanciera → "POR VERIFICAR" |
 | `V4__add_deadline.sql` | `ALTER TABLE generated_document ADD COLUMN deadline TIMESTAMPTZ` |
+| `V5__update_tenant_branding.sql` | Actualiza el tenant a la identidad real "TUFUTURO — Abogados en Pensiones" (oficinas Medellín/Pereira, correos, WhatsApp, web); branding JSONB camelCase. PK `estufuturo-legal` sin cambios. |
+| `V6__templates_tufuturo.sql` | 7 plantillas por tipología real de la firma (ver sección Plantillas), `INSERT ... ON CONFLICT DO NOTHING`; conviven con las 3 genéricas previas. |
+
+---
+
+## Plantillas de la firma y corpus RAG (TUFUTURO)
+
+Tipologías jurídicas reales derivadas del análisis de las minutas (migración V6), todas `rag_strict=true`:
+`PETICION-DOCUMENTOS`, `PETICION-CALCULO-ACTUARIAL`, `RECLAMACION-REAJUSTE-PENSIONAL`, `RECLAMACION-RETROACTIVO`, `PETICION-CULPA-PATRONAL`, `RECLAMACION-INEFICACIA-TRASLADO`, `RECLAMACION-CONTRATO-REALIDAD`.
+
+- Cada `system_prompt` calca la anatomía real: `Señores / DESTINATARIO / Ciudad|E.S.D. / ASUNTO|REFERENCIA / comparecencia (apoderado o nombre propio, campo `tipo_firmante`) / cuerpo por tipología / bloque de NOTIFICACIONES literal de la firma / Atentamente / FIRMANTE en mayúsculas / C.C / [T.P solo si apoderado]`. Sin títulos de sección en negrita (las minutas no los llevan).
+- `legal_rules` acotado a lo que la firma **sí** cita: art. 23 CN, Ley 1755/2015, arts. 5/15/16 Ley 1437/2011, Ley 100/1993 (art. 141 intereses de mora), Ley 797/2003, art. 216 CST.
+- **Datos duros** (nº de resolución, radicados, sentencias, valores, fechas, PCL) provienen solo de los campos del caso o adjuntos — nunca inventados por el modelo.
+- Los `fields` son KEYS en snake_case; el frontend deriva la etiqueta con `humanize()` (no hay mapa de labels por plantilla).
+
+### Carga de minutas modelo + corpus (`seed-rag.ps1` / `seed-rag.sh`)
+Scripts en la raíz. Por cada plantilla suben su `.docx` modelo (`format-doc`) y sus minutas como corpus RAG (`/documents`). Requieren el stack arriba (Ollama para embeddings) y usuario `manage_templates`. Usan **`curl.exe`** para el multipart (Windows PowerShell 5.1 no tiene `Invoke-RestMethod -Form`). Los `.ps1` con no-ASCII deben guardarse **con BOM UTF-8** (PS 5.1 lee sin BOM como ANSI y rompe tildes/ñ). Solo procesan `.docx`; los `.doc` antiguos deben convertirse antes. Documentado en `docs/OPERACION.md`.
 
 ---
 
@@ -180,6 +206,14 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 | `LoadingState` / `EmptyState` | Estados consistentes en tablas y listas |
 | `DeadlineChip` | Chip de vencimiento con color: verde (>7d), warning (≤7d), error (≤3d o vencido) |
 | `ProtectedRoute` | Redirige a `/login` si no autenticado; a `/` si sin permiso |
+| `PageHeader` | Encabezado de página estándar: título (h4) + subtítulo + slot de acción. Usar en todas las páginas en vez de armar el encabezado a mano |
+| `RowActions` | Menú "⋮" que agrupa las acciones de fila de tabla (Ver/Editar, Word, PDF, Aprobar…). Evita tiras de botones; patrón único para acciones de fila |
+| `DocumentEditor` | Editor Tiptap (hoja A4). Úsalo para **toda** visualización/edición de documentos (`readOnly` para ver). Mismo control en el wizard y en "Mis documentos" |
+
+### Diseño / theme
+- **Theme central** en `src/theme.ts` (`createTheme`): paleta (primary índigo + secondary dorado), tipografía jerárquica (h4 títulos de página, h5/h6 secciones, botones sin mayúsculas) y overrides globales (**tablas `size="small"` por defecto**, `TextField` small, botones sin elevación, cards con borde). Preferir tokens del theme a colores hardcodeados.
+- `AppLayout` envuelve el contenido en `Container maxWidth="xl"` para un ancho consistente.
+- Conversión texto↔HTML para el editor: `markdownToHtml` / `htmlToPlainText` en `src/utils/`.
 
 ---
 
@@ -192,7 +226,7 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 
 ### Docker / Despliegue
 - **Modo PREBUILT**: si el contenedor no tiene acceso a internet (DNS falla para Maven Central), el build de la imagen falla. Solución: `.\gradlew.bat bootJar --no-daemon` en local y `docker compose build --build-arg PREBUILT=true backend`. El Dockerfile soporta ambos modos con `ARG PREBUILT=false`.
-- **Volumen `generated_docs`**: los `.docx` generados viven dentro del contenedor en `generated_docs/`. Si el contenedor se recrea sin un volumen persistente, los archivos se pierden (los registros en BD siguen pero el `download` da 404). Pendiente: declarar un `volume` en `docker-compose.yml` para este directorio.
+- **Volumen `generated_docs`**: los `.docx` generados viven en `/app/generated_docs` dentro del backend. Ya hay un **volumen Docker nombrado `generated_docs`** declarado en `docker-compose.yml` para que persistan entre recreaciones del contenedor. Los documentos creados **antes** de añadir el volumen se perdieron (sus registros en BD dan 404 en `download`/`text`); los nuevos persisten.
 - Postgres se publica en puerto **5433** en el host (evita conflicto con instalaciones locales).
 
 ### Spring Boot 4
@@ -206,6 +240,11 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 - `Grid2 as Grid` de `@mui/material` para el API con `size={{ xs, sm, md }}`.
 - Descargas autenticadas: usar Axios con `responseType: "blob"` (no `<a href>` directo → 403).
 - `DocumentController.resolveUserName(usernameOrId)`: los documentos históricos tienen UUID en `authorUserId`; los nuevos tienen username. El método intenta `findByUsername` primero, luego `findById` para compatibilidad retroactiva.
+- Visualización de documentos unificada en `DocumentEditor` (Tiptap). Acciones de fila unificadas en `RowActions` (menú ⋮). Encabezados en `PageHeader`.
+
+### Scripts PowerShell (Windows PowerShell 5.1)
+- Multipart (`-Form` de `Invoke-RestMethod`) **no existe** en PS 5.1 → usar `curl.exe` (en System32) con `-F` para subir archivos.
+- Scripts `.ps1` con caracteres no-ASCII (tildes, ñ) deben guardarse **con BOM UTF-8**; sin BOM, PS 5.1 los lee como ANSI y el parser falla.
 
 ---
 
@@ -237,10 +276,11 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 ## Estado del proyecto (rama `feature/migracion`)
 
 ### ✅ Completado y en producción
-- **Backend completo**: auth JWT, RBAC, CRUD REST, generación + RAG (pgvector + Groq), exportación DOCX/PDF, auditoría, plazos jurídicos (`deadline`), radicado (`internalDocket`), estadísticas, marca de agua al vuelo.
-- **Frontend completo**: Dashboard con métricas y control de plazos, wizard de generación, mis documentos, todos los documentos (admin), plantillas con corpus RAG, entidades, empresa, usuarios con chips de rol y campo activo.
-- **Infra**: Docker Compose con 5 servicios, scripts `start.ps1/sh`, backups `backup.ps1/sh` + `restore.ps1/sh`, `OPERACION.md`.
-- **Tests**: `GenerateDocumentServiceTest` (prompt + RAG estricto), `TemplateControllerSecurityTest` (MockMvc + @PreAuthorize), `AuthServiceTest`, `JwtServiceTest`, `UserServiceTest`, `SplitTextTest`, `PersistenceIntegrationTest` (Testcontainers).
+- **Backend completo**: auth JWT, RBAC, CRUD REST, generación + RAG (pgvector + Groq), exportación DOCX/PDF, auditoría, plazos jurídicos (`deadline`), radicado (`internalDocket`), estadísticas, marca de agua al vuelo, edición de borrador (`PUT /{id}/content`).
+- **Fidelidad a las minutas de la firma**: cuerpo Cambria 14 justificado; 7 plantillas por tipología real con prompts que calcan la anatomía; identidad del tenant actualizada (V5); firma estampada al aprobar; scripts `seed-rag` para cargar `.docx` modelo + corpus RAG.
+- **Frontend completo**: Dashboard, wizard de generación, mis documentos, todos los documentos (admin), plantillas con corpus RAG, entidades, empresa, usuarios. Pase de UI/UX: theme central, `PageHeader`, `RowActions` (menú ⋮), visualización unificada con `DocumentEditor`.
+- **Infra**: Docker Compose con 5 servicios + volumen persistente `generated_docs`, scripts `start.ps1/sh`, `seed-rag.ps1/sh`, backups `backup.ps1/sh` + `restore.ps1/sh`, `OPERACION.md`.
+- **Tests**: `GenerateDocumentServiceTest`, `DocxExporterTest` (Cambria 14 justificado + membrete), `DocxSignatureStamperTest`, `TemplateControllerSecurityTest`, `AuthServiceTest`, `JwtServiceTest`, `UserServiceTest`, `SplitTextTest`, `PersistenceIntegrationTest`. Suite: 36 tests verdes.
 
 ### ⏳ Pendiente operativo (depende de la firma o del servidor)
 - `.docx` modelo por plantilla: cargar vía `POST /templates/{id}/format-doc`.
@@ -249,7 +289,8 @@ Extrae texto de adjuntos del caso (PDF via PDFBox, DOCX via POI, TXT). El texto 
 - Credenciales de producción: rotar o eliminar los 4 usuarios del seed (`V2`).
 
 ### ⚠️ Deuda técnica conocida
-- `generated_docs/` no tiene volumen Docker persistente → los `.docx` se pierden al recrear el contenedor.
+- **Membrete universal**: solo salen con membrete los documentos cuya plantilla tiene `.docx` modelo cargado (`buildFromFormat`). El modo `buildBranded` (plantillas sin modelo, p. ej. las genéricas viejas) pone solo texto, no el logo. Para cumplir "todo documento revisado con membrete" de forma universal, falta insertar el logo real en `buildBranded`.
+- **Firma en PDF**: `PdfExporter.buildFromDocx` reconstruye desde texto plano → la firma estampada (y el formato DOCX) no aparecen en el PDF. Usar DOCX para el documento firmado.
 - `ClientDataProviderPort` sin adaptador (gancho a futuro).
 - `JwtAuthFilter` usa `@NonNull` de `org.springframework.lang` (deprecado en Spring 7; migrar a JSpecify).
 - Bundle del frontend ~680 kB — code-splitting con `React.lazy` mejoraría carga inicial.
