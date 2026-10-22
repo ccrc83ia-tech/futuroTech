@@ -86,6 +86,9 @@ export const documentsApi = {
     return api.post<GeneratedDoc>("/documents/generate", form).then((r) => r.data);
   },
   mine: () => api.get<GeneratedDoc[]>("/documents/mine").then((r) => r.data),
+  all: () => api.get<GeneratedDoc[]>("/documents").then((r) => r.data),
+  text: (id: string) =>
+    api.get<{ text: string; status: string }>(`/documents/${id}/text`).then((r) => r.data),
   review: (id: string, status: string) =>
     api.put<GeneratedDoc>(`/documents/${id}/review`, { status }).then((r) => r.data),
   /**

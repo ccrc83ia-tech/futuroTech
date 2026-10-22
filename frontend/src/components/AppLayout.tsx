@@ -3,6 +3,7 @@ import ArticleIcon from "@mui/icons-material/Article";
 import BusinessIcon from "@mui/icons-material/Business";
 import ContactsIcon from "@mui/icons-material/Contacts";
 import DescriptionIcon from "@mui/icons-material/Description";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import GroupIcon from "@mui/icons-material/Group";
 import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -38,12 +39,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { label: "Generar documento", path: "/generar", icon: <AddCircleIcon />, permission: PERMISSIONS.GENERATE_DOCUMENT },
-  { label: "Mis documentos", path: "/documentos", icon: <DescriptionIcon />, permission: PERMISSIONS.GENERATE_DOCUMENT },
-  { label: "Plantillas", path: "/plantillas", icon: <ArticleIcon />, permission: PERMISSIONS.VIEW_TEMPLATES },
-  { label: "Entidades", path: "/entidades", icon: <ContactsIcon />, permission: PERMISSIONS.VIEW_ENTITIES },
-  { label: "Empresa", path: "/empresa", icon: <BusinessIcon />, permission: PERMISSIONS.VIEW_COMPANY },
-  { label: "Usuarios", path: "/usuarios", icon: <GroupIcon />, permission: PERMISSIONS.MANAGE_USERS },
+  { label: "Generar documento",    path: "/generar",    icon: <AddCircleIcon />,   permission: PERMISSIONS.GENERATE_DOCUMENT },
+  { label: "Mis documentos",       path: "/documentos", icon: <DescriptionIcon />, permission: PERMISSIONS.GENERATE_DOCUMENT },
+  { label: "Todos los documentos", path: "/todos",      icon: <FolderOpenIcon />,  permission: PERMISSIONS.MANAGE_USERS },
+  { label: "Plantillas",           path: "/plantillas", icon: <ArticleIcon />,     permission: PERMISSIONS.VIEW_TEMPLATES },
+  { label: "Entidades",            path: "/entidades",  icon: <ContactsIcon />,    permission: PERMISSIONS.VIEW_ENTITIES },
+  { label: "Empresa",              path: "/empresa",    icon: <BusinessIcon />,    permission: PERMISSIONS.VIEW_COMPANY },
+  { label: "Usuarios",             path: "/usuarios",   icon: <GroupIcon />,       permission: PERMISSIONS.MANAGE_USERS },
 ];
 
 function initials(name?: string | null): string {

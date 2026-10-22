@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -27,6 +30,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.io.ByteArrayInputStream;
 
 import com.futurotech.legal.application.service.CompanyService;
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
@@ -187,6 +192,62 @@ public class DocumentController {
         auditTrail.updateStatus(id, status, auth.getName());
         return toResponse(auditTrail.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
+    }
+
+    /** Lista todos los documentos (admin y abogado ven los de todos los usuarios). */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'ABOGADO')")
+    public List<GeneratedDocResponse> all() {
+        return auditTrail.findAll().stream().map(this::toResponse).toList();
+    }
+
+    /**
+     * Devuelve el texto del DOCX con marcado Markdown básico (negrillas, saltos
+     * de línea). Permite que el frontend muestre un editor de texto antes de
+     * descargar. La marca de agua BORRADOR se inyecta si el documento está en DRAFT.
+     */
+    @GetMapping("/{id}/text")
+    @PreAuthorize("hasAuthority('PERM_generate_document')")
+    public ResponseEntity<Map<String, String>> text(@PathVariable UUID id) throws IOException {
+        GeneratedDocument doc = auditTrail.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado"));
+        Path file = outputDir.resolve(doc.fileName());
+        if (!Files.exists(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        byte[] docxBytes = Files.readAllBytes(file);
+        String text = extractMarkdown(docxBytes);
+        if (doc.status() == DocumentStatus.DRAFT) {
+            text = "⚠️ BORRADOR — Requiere revisión de un abogado antes de su uso.\n\n" + text;
+        }
+        return ResponseEntity.ok(Map.of("text", text, "status", doc.status().name()));
+    }
+
+    /** Extrae el texto del DOCX preservando negrillas (**texto**) e itálicas (*texto*). */
+    private static String extractMarkdown(byte[] docxBytes) {
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(docxBytes))) {
+            StringBuilder sb = new StringBuilder();
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                if (para.getText().isBlank()) {
+                    sb.append("\n");
+                    continue;
+                }
+                for (XWPFRun run : para.getRuns()) {
+                    String t = run.getText(0);
+                    if (t == null || t.isEmpty()) continue;
+                    boolean bold   = Boolean.TRUE.equals(run.isBold());
+                    boolean italic = Boolean.TRUE.equals(run.isItalic());
+                    if (bold && italic) t = "***" + t + "***";
+                    else if (bold)      t = "**" + t + "**";
+                    else if (italic)    t = "*" + t + "*";
+                    sb.append(t);
+                }
+                sb.append("\n");
+            }
+            return sb.toString().stripTrailing();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private GeneratedDocResponse toResponse(GeneratedDocument d) {

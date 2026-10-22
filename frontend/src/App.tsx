@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { PERMISSIONS } from "./api/types";
+import AllDocumentsPage from "./pages/AllDocumentsPage";
 import CompanyPage from "./pages/CompanyPage";
 import EntitiesPage from "./pages/EntitiesPage";
 import GenerateWizard from "./pages/GenerateWizard";
@@ -23,6 +24,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/generar" element={<Protected permission={PERMISSIONS.GENERATE_DOCUMENT} element={<GenerateWizard />} />} />
+      <Route path="/todos" element={<Protected permission={PERMISSIONS.MANAGE_USERS} element={<AllDocumentsPage />} />} />
       <Route path="/documentos" element={<Protected permission={PERMISSIONS.GENERATE_DOCUMENT} element={<MyDocumentsPage />} />} />
       <Route path="/plantillas" element={<Protected permission={PERMISSIONS.VIEW_TEMPLATES} element={<TemplatesPage />} />} />
       <Route path="/entidades" element={<Protected permission={PERMISSIONS.VIEW_ENTITIES} element={<EntitiesPage />} />} />
