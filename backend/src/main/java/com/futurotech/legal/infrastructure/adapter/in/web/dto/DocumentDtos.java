@@ -28,17 +28,34 @@ public final class DocumentDtos {
             String downloadUrl,
             Instant createdAt,
             // --- Campos de trazabilidad y contexto del caso ---
-            String clientName,        // caseFields["cliente_nombre"] para identificar el caso
-            String entityId,          // id de la entidad destinataria
-            String entityName,        // nombre resuelto de la entidad destinataria
-            String authorUserId,      // usuario que generó el documento
-            String reviewedBy,        // usuario que lo aprobó/revisó (null si DRAFT)
-            Instant reviewedAt        // fecha de aprobación/revisión
+            String clientName,
+            String entityId,
+            String entityName,
+            String authorUserId,
+            String reviewedBy,
+            Instant reviewedAt,
+            // --- Plazos y radicado ---
+            Instant deadline,
+            String internalDocket
     ) {
     }
 
     public record ReviewRequest(
-            @NotBlank String status      // REVIEWED | APPROVED | VOID
+            @NotBlank String status
+    ) {
+    }
+
+    public record DocketRequest(
+            @NotBlank String internalDocket
+    ) {
+    }
+
+    public record StatsResponse(
+            long totalMonth,
+            long pendingReview,
+            long upcomingDeadlines,
+            long overdue,
+            Map<String, Long> byTemplate
     ) {
     }
 }

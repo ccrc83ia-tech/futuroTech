@@ -4,9 +4,17 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "entities")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class RecipientEntityJpa {
 
     @Id
@@ -27,61 +35,4 @@ public class RecipientEntityJpa {
     private String entityType;
 
     private String notes;
-
-    protected RecipientEntityJpa() {
-    }
-
-    public RecipientEntityJpa(String entityId, String name, String nit, String address, String city,
-                              String phone, String email, String legalRep, String entityType, String notes) {
-        this.entityId = entityId;
-        this.name = name;
-        this.nit = nit;
-        this.address = address;
-        this.city = city;
-        this.phone = phone;
-        this.email = email;
-        this.legalRep = legalRep;
-        this.entityType = entityType;
-        this.notes = notes;
-    }
-
-    public String getEntityId() {
-        return entityId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getNit() {
-        return nit;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public String getPhone() {
-        return phone;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public String getLegalRep() {
-        return legalRep;
-    }
-
-    public String getEntityType() {
-        return entityType;
-    }
-
-    public String getNotes() {
-        return notes;
-    }
 }

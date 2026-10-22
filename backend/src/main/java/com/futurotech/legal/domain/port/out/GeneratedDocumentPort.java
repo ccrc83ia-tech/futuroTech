@@ -19,4 +19,7 @@ public interface GeneratedDocumentPort {
 
     /** Actualiza solo el estado de revisión (DRAFT -> REVIEWED/APPROVED/VOID). */
     void updateStatus(UUID id, com.futurotech.legal.domain.model.DocumentStatus status, String reviewedBy);
+
+    /** Actualiza el radicado interno de un documento. */
+    void updateDocket(UUID id, String internalDocket);
 }

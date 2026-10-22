@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
+import java.time.Instant;
 
 import com.futurotech.legal.application.service.CompanyService;
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
@@ -45,9 +46,11 @@ import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
 import com.futurotech.legal.domain.port.out.EntityRepositoryPort;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.DocketRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.StatsResponse;
 import com.futurotech.legal.infrastructure.adapter.out.export.DocxWatermarkStamper;
 import com.futurotech.legal.infrastructure.adapter.out.export.PdfExporter;
 import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
@@ -250,6 +253,43 @@ public class DocumentController {
         }
     }
 
+    /** Registra el número de radicado interno de un documento. */
+    @PutMapping("/{id}/docket")
+    @PreAuthorize("hasAuthority('PERM_generate_document')")
+    public GeneratedDocResponse updateDocket(@PathVariable UUID id,
+                                             @Valid @RequestBody DocketRequest req) {
+        auditTrail.updateDocket(id, req.internalDocket());
+        return toResponse(auditTrail.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
+    }
+
+    /** Métricas para el dashboard del despacho. */
+    @GetMapping("/stats")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ABOGADO')")
+    public StatsResponse stats() {
+        Instant now = Instant.now();
+        Instant monthStart = now.atZone(java.time.ZoneId.of("America/Bogota"))
+                .withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)
+                .toInstant();
+        Instant weekFromNow = now.plus(7, java.time.temporal.ChronoUnit.DAYS);
+
+        List<GeneratedDocument> all = auditTrail.findAll();
+        long totalMonth = all.stream().filter(d -> d.createdAt() != null && d.createdAt().isAfter(monthStart)).count();
+        long pendingReview = all.stream().filter(d -> d.status() == DocumentStatus.DRAFT).count();
+        long upcomingDeadlines = all.stream()
+                .filter(d -> d.deadline() != null && d.deadline().isAfter(now) && d.deadline().isBefore(weekFromNow))
+                .count();
+        long overdue = all.stream()
+                .filter(d -> d.deadline() != null && d.deadline().isBefore(now)
+                        && d.status() != DocumentStatus.APPROVED && d.status() != DocumentStatus.VOID)
+                .count();
+        Map<String, Long> byTemplate = all.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        d -> d.templateId(), java.util.stream.Collectors.counting()));
+
+        return new StatsResponse(totalMonth, pendingReview, upcomingDeadlines, overdue, byTemplate);
+    }
+
     private GeneratedDocResponse toResponse(GeneratedDocument d) {
         String clientName = d.caseFields() != null
                 ? d.caseFields().getOrDefault("cliente_nombre",
@@ -262,6 +302,6 @@ public class DocumentController {
                 d.id().toString(), d.templateId(), d.status().name(), d.fileName(),
                 "/api/v1/documents/" + d.id() + "/download", d.createdAt(),
                 clientName, d.entityId(), entityName, d.authorUserId(),
-                d.reviewedBy(), d.reviewedAt());
+                d.reviewedBy(), d.reviewedAt(), d.deadline(), d.internalDocket());
     }
 }

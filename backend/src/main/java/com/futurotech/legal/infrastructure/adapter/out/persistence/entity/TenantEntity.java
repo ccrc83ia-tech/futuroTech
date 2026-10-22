@@ -6,11 +6,19 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "tenant")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class TenantEntity {
 
     @Id
@@ -30,41 +38,4 @@ public class TenantEntity {
     private Branding branding;
 
     private boolean active;
-
-    protected TenantEntity() {
-    }
-
-    public TenantEntity(String tenantId, String name, String systemPrompt,
-                        List<String> legalRules, Branding branding, boolean active) {
-        this.tenantId = tenantId;
-        this.name = name;
-        this.systemPrompt = systemPrompt;
-        this.legalRules = legalRules;
-        this.branding = branding;
-        this.active = active;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getSystemPrompt() {
-        return systemPrompt;
-    }
-
-    public List<String> getLegalRules() {
-        return legalRules;
-    }
-
-    public Branding getBranding() {
-        return branding;
-    }
-
-    public boolean isActive() {
-        return active;
-    }
 }

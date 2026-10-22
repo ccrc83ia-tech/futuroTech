@@ -107,7 +107,7 @@ class PersistenceIntegrationTest {
         var doc = new GeneratedDocument(id, "ACCION-TUTELA-V1", 1, "u-1", "ent-1",
                 Map.of("cliente_nombre", "Ana", "cedula", "123"),
                 DocumentStatus.DRAFT, null, "file.docx", "abc123",
-                Instant.now(), null, null);
+                Instant.now(), null, null, null);
 
         generatedDocs.save(doc);
         assertThat(generatedDocs.findById(id)).isPresent();

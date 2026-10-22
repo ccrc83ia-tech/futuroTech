@@ -31,7 +31,7 @@ public class GeneratedDocumentAdapter implements GeneratedDocumentPort {
         jpa.save(new GeneratedDocumentEntity(
                 d.id(), d.templateId(), d.templateVersion(), d.authorUserId(), d.entityId(),
                 d.caseFields(), d.status().name(), d.internalDocket(), d.fileName(), d.fileHash(),
-                d.createdAt(), d.reviewedBy(), d.reviewedAt()));
+                d.createdAt(), d.reviewedBy(), d.reviewedAt(), d.deadline()));
     }
 
     @Override
@@ -63,10 +63,20 @@ public class GeneratedDocumentAdapter implements GeneratedDocumentPort {
         jpa.save(e);
     }
 
+    @Override
+    @Transactional
+    public void updateDocket(UUID id, String internalDocket) {
+        GeneratedDocumentEntity e = jpa.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado: " + id));
+        e.setInternalDocket(internalDocket);
+        jpa.save(e);
+    }
+
     private GeneratedDocument toDomain(GeneratedDocumentEntity e) {
         return new GeneratedDocument(
                 e.getId(), e.getTemplateId(), e.getTemplateVersion(), e.getAuthorUserId(), e.getEntityId(),
                 e.getCaseFields(), DocumentStatus.valueOf(e.getStatus()), e.getInternalDocket(),
-                e.getFileName(), e.getFileHash(), e.getCreatedAt(), e.getReviewedBy(), e.getReviewedAt());
+                e.getFileName(), e.getFileHash(), e.getCreatedAt(), e.getReviewedBy(), e.getReviewedAt(),
+                e.getDeadline());
     }
 }

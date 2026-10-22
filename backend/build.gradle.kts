@@ -53,6 +53,12 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
+    // --- Lombok ---
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    testCompileOnly("org.projectlombok:lombok")
+    testAnnotationProcessor("org.projectlombok:lombok")
+
     // --- Exportación de documentos ---
     implementation("org.apache.poi:poi-ooxml:5.4.0")   // DOCX
     implementation("com.github.librepdf:openpdf:2.0.3") // PDF

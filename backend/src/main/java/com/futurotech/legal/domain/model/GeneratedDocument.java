@@ -21,7 +21,8 @@ public record GeneratedDocument(
         String fileHash,
         Instant createdAt,
         String reviewedBy,
-        Instant reviewedAt
+        Instant reviewedAt,
+        Instant deadline
 ) {
     public GeneratedDocument {
         caseFields = caseFields == null ? Map.of() : Map.copyOf(caseFields);

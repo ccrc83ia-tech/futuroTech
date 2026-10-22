@@ -135,10 +135,38 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         GeneratedDocument doc = new GeneratedDocument(
                 transactionId, cmd.templateId(), null, cmd.authorUserId(), cmd.entityId(),
                 cmd.caseFields(), DocumentStatus.DRAFT, null, saved, sha256(rawText),
-                Instant.now(), null, null);
+                Instant.now(), null, null, calculateDeadline(cmd.templateId()));
         auditTrail.save(doc);
         log.info("[{}] Documento registrado (DRAFT): {}", transactionId, saved);
         return doc;
+    }
+
+    // --- Cálculo de plazos legales ---
+
+    /**
+     * Calcula el plazo legal de respuesta en días hábiles según el tipo de
+     * plantilla. Petición general/pensional = 15 días hábiles, tutela = 10.
+     * Si no se reconoce el tipo, usa 15 por defecto.
+     */
+    static Instant calculateDeadline(String templateId) {
+        int businessDays = 15;
+        if (templateId != null && templateId.contains("TUTELA")) {
+            businessDays = 10;
+        }
+        return addBusinessDays(Instant.now(), businessDays);
+    }
+
+    /** Suma N días hábiles (lun-vie) a un Instant. No cuenta sábados ni domingos. */
+    static Instant addBusinessDays(Instant start, int days) {
+        java.time.ZonedDateTime zdt = start.atZone(java.time.ZoneId.of("America/Bogota"));
+        int added = 0;
+        while (added < days) {
+            zdt = zdt.plusDays(1);
+            if (zdt.getDayOfWeek().getValue() <= 5) { // lunes=1 .. viernes=5
+                added++;
+            }
+        }
+        return zdt.toInstant();
     }
 
     // --- Composición de prompt + RAG estricto (porta la lógica del sistema Python) ---
