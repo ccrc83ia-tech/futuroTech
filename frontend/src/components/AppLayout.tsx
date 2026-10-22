@@ -3,6 +3,7 @@ import ArticleIcon from "@mui/icons-material/Article";
 import BusinessIcon from "@mui/icons-material/Business";
 import ContactsIcon from "@mui/icons-material/Contacts";
 import DescriptionIcon from "@mui/icons-material/Description";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import GroupIcon from "@mui/icons-material/Group";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -39,6 +40,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { label: "Inicio",               path: "/",           icon: <DashboardIcon /> },
   { label: "Generar documento",    path: "/generar",    icon: <AddCircleIcon />,   permission: PERMISSIONS.GENERATE_DOCUMENT },
   { label: "Mis documentos",       path: "/documentos", icon: <DescriptionIcon />, permission: PERMISSIONS.GENERATE_DOCUMENT },
   { label: "Todos los documentos", path: "/todos",      icon: <FolderOpenIcon />,  permission: PERMISSIONS.MANAGE_USERS },

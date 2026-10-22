@@ -4,6 +4,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { PERMISSIONS } from "./api/types";
 import AllDocumentsPage from "./pages/AllDocumentsPage";
 import CompanyPage from "./pages/CompanyPage";
+import DashboardPage from "./pages/DashboardPage";
 import EntitiesPage from "./pages/EntitiesPage";
 import GenerateWizard from "./pages/GenerateWizard";
 import LoginPage from "./pages/LoginPage";
@@ -30,7 +31,7 @@ export default function App() {
       <Route path="/entidades" element={<Protected permission={PERMISSIONS.VIEW_ENTITIES} element={<EntitiesPage />} />} />
       <Route path="/empresa" element={<Protected permission={PERMISSIONS.VIEW_COMPANY} element={<CompanyPage />} />} />
       <Route path="/usuarios" element={<Protected permission={PERMISSIONS.MANAGE_USERS} element={<UsersPage />} />} />
-      <Route path="/" element={<Navigate to="/generar" replace />} />
+      <Route path="/" element={<Protected element={<DashboardPage />} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

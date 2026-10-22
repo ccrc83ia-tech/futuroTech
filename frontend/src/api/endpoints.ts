@@ -2,6 +2,7 @@ import api from "./client";
 import type {
   AuthResponse,
   Company,
+  DocumentStats,
   GeneratedDoc,
   GenerateRequest,
   RecipientEntity,
@@ -87,8 +88,11 @@ export const documentsApi = {
   },
   mine: () => api.get<GeneratedDoc[]>("/documents/mine").then((r) => r.data),
   all: () => api.get<GeneratedDoc[]>("/documents").then((r) => r.data),
+  stats: () => api.get<DocumentStats>("/documents/stats").then((r) => r.data),
   text: (id: string) =>
     api.get<{ text: string; status: string }>(`/documents/${id}/text`).then((r) => r.data),
+  updateDocket: (id: string, internalDocket: string) =>
+    api.put<GeneratedDoc>(`/documents/${id}/docket`, { internalDocket }).then((r) => r.data),
   review: (id: string, status: string) =>
     api.put<GeneratedDoc>(`/documents/${id}/review`, { status }).then((r) => r.data),
   /**
