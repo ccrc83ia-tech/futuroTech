@@ -86,6 +86,11 @@ services:
       OLLAMA_GEN_MODEL: ${OLLAMA_GEN_MODEL:-qwen2.5:7b}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      # Persiste los .docx generados fuera del contenedor: sin esto, al recrear
+      # el backend se pierden los archivos y las descargas/vistas dan 404 aunque
+      # el registro siga en la base de datos.
+      - generated_docs:/app/generated_docs
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -103,3 +108,4 @@ services:
 volumes:
   db_data:
   ollama_data:
+  generated_docs:

@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # FuturoTech AI — Carga de minutas modelo y corpus RAG (Windows / PowerShell)
 # ------------------------------------------------------------
 # Para cada plantilla de la firma sube:
@@ -105,27 +105,31 @@ foreach ($templateId in $map.Keys) {
         }
 
         # 2a. La primera minuta define el documento modelo (formato/membrete).
+        # Se usa curl.exe para el multipart: es fiable con binarios y nombres con
+        # tildes, y compatible con Windows PowerShell 5.1 (que no tiene -Form).
         if ($first) {
-            try {
-                $form = @{ file = Get-Item $path }
-                Invoke-RestMethod -Uri "$BaseUrl/api/v1/templates/$templateId/format-doc" `
-                    -Method Post -Headers $headers -Form $form | Out-Null
+            $out = & curl.exe -s -S -o NUL -w "%{http_code}" -X POST `
+                "$BaseUrl/api/v1/templates/$templateId/format-doc" `
+                -H "Authorization: Bearer $token" -F "file=@$path" 2>&1
+            if ($out -match '20\d') {
                 Write-Host "  [modelo] $fileName" -ForegroundColor Green
-            } catch {
-                Write-Host "  [ERROR modelo] $fileName -> $_" -ForegroundColor Red
+            } else {
+                Write-Host "  [ERROR modelo] $fileName -> HTTP $out" -ForegroundColor Red
             }
             $first = $false
         }
 
         # 2b. Indexar la minuta como corpus RAG.
-        try {
-            $form = @{ file = Get-Item $path }
-            $resp = Invoke-RestMethod -Uri "$BaseUrl/api/v1/templates/$templateId/documents" `
-                -Method Post -Headers $headers -Form $form
-            Write-Host "  [RAG] $fileName -> $($resp.chunks) chunks" -ForegroundColor Green
-            $totalChunks += [int]$resp.chunks
-        } catch {
-            Write-Host "  [ERROR RAG] $fileName -> $_" -ForegroundColor Red
+        $resp = & curl.exe -s -S -X POST `
+            "$BaseUrl/api/v1/templates/$templateId/documents" `
+            -H "Authorization: Bearer $token" -F "file=@$path" 2>&1
+        $chunks = 0
+        try { $chunks = ([int]((($resp | Out-String) | ConvertFrom-Json).chunks)) } catch { }
+        if ($chunks -gt 0) {
+            Write-Host "  [RAG] $fileName -> $chunks chunks" -ForegroundColor Green
+            $totalChunks += $chunks
+        } else {
+            Write-Host "  [ERROR RAG] $fileName -> $resp" -ForegroundColor Red
         }
     }
 }
