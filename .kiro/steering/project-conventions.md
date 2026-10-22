@@ -51,6 +51,24 @@ Todas las tecnologías deben ser open source / gratuitas para uso comercial. No 
 - Spring MVC bloqueante (NO WebFlux reactivo) — el sistema es I/O-bound esperando al LLM; no se justifica la complejidad reactiva.
 - DTOs de transporte separados de los modelos de dominio.
 
+## Logging y manejo de excepciones
+
+- **Logger:** SLF4J vía `LoggerFactory.getLogger(Clase.class)` como `private static final Logger log`. NO usar `System.out`/`printStackTrace`. Única excepción documentada: el banner de credenciales iniciales en `AuthService` va a `System.out` a propósito (los secretos NUNCA al logger, que puede tener appenders a fichero/agregador).
+- **Correlación (traceId):** `CorrelationIdFilter` (infra/config, `@Order(HIGHEST_PRECEDENCE)`) asigna un `traceId` por petición al MDC de SLF4J y lo devuelve en la cabecera `X-Correlation-ID` (respeta la que envíe el cliente). El patrón de consola incluye `[%X{traceId}]`, así que toda línea de una misma petición es rastreable. El MDC se limpia en `finally` (pool de hilos).
+- **Excepciones de dominio:** heredan de `DomainException`. Mapa estándar en `GlobalExceptionHandler` (`@RestControllerAdvice`):
+  - `AuthenticationException` → 401
+  - `AccessDeniedException` (fallos de `@PreAuthorize`) → 403
+  - `TenantNotFoundException` / `ResourceNotFoundException` / `NoHandlerFoundException` → 404
+  - `HttpRequestMethodNotSupportedException` → 405
+  - `InvalidSchemaException` / `MethodArgumentNotValidException` → 422 (`UNPROCESSABLE_CONTENT`, NO el deprecado `UNPROCESSABLE_ENTITY` en Spring 7)
+  - `HttpMessageNotReadableException` / `IllegalArgumentException` → 400
+  - `DocumentGenerationException` → 500
+  - `Exception` (red de seguridad) → 500 sin filtrar stacktrace al cliente
+- **"No encontrado" = 404:** usar `ResourceNotFoundException`, NO `IllegalArgumentException` (400) ni `DocumentGenerationException` (500).
+- **Cuerpo de error:** record `ApiError` (`timestamp`, `status`, `error`, `message`, `path`, `traceId`). Mensajes de cara al usuario en español; el `traceId` permite cruzar con los logs.
+- **Política de niveles:** 4xx del cliente → `WARN` sin traza (flujo normal); 5xx y lo no previsto → `ERROR` con traza completa. Nunca registrar secretos ni PII sensible.
+- **Deprecaciones:** `build.gradle.kts` compila con `-Xlint:deprecation`. Nuevo código sin deprecaciones; `JwtAuthFilter` aún usa `@NonNull` de `org.springframework.lang` (deprecado en Spring 7, pendiente migrar a JSpecify).
+
 ## Reglas de migración
 
 - El sistema Python en `c:\proyecto\derecho_peticion` es la **especificación ejecutable de referencia**. Replicar el comportamiento del dominio (composición de prompt, modo RAG estricto, preservación byte-a-byte del DOCX, reglas RBAC) con fidelidad.

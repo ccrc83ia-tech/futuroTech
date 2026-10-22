@@ -29,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.futurotech.legal.application.service.CompanyService;
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
+import com.futurotech.legal.domain.exception.ResourceNotFoundException;
 import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
@@ -117,7 +118,7 @@ public class DocumentController {
     @PreAuthorize("hasAuthority('PERM_generate_document')")
     public ResponseEntity<Resource> download(@PathVariable UUID id) throws IOException {
         GeneratedDocument doc = auditTrail.findById(id)
-                .orElseThrow(() -> new DocumentGenerationException("Documento no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado"));
         Path file = outputDir.resolve(doc.fileName());
         if (!Files.exists(file)) {
             return ResponseEntity.notFound().build();
@@ -137,7 +138,8 @@ public class DocumentController {
                                        Authentication auth) {
         DocumentStatus status = DocumentStatus.valueOf(req.status());
         auditTrail.updateStatus(id, status, auth.getName());
-        return toResponse(auditTrail.findById(id).orElseThrow());
+        return toResponse(auditTrail.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
     }
 
     private static GeneratedDocResponse toResponse(GeneratedDocument d) {

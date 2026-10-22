@@ -1,12 +1,15 @@
 package com.futurotech.legal.application.service;
 
-import com.futurotech.legal.domain.model.Role;
-import com.futurotech.legal.domain.model.User;
-import com.futurotech.legal.domain.port.out.UserRepositoryPort;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
 import org.springframework.stereotype.Service;
+
+import com.futurotech.legal.domain.exception.ResourceNotFoundException;
+import com.futurotech.legal.domain.model.Role;
+import com.futurotech.legal.domain.model.User;
+import com.futurotech.legal.domain.port.out.UserRepositoryPort;
 
 /** Casos de uso de gestión de usuarios (RBAC). */
 @Service
@@ -44,7 +47,7 @@ public class UserService {
     public User update(String userId, String fullName, String email, Role role, boolean active,
                        String plainPassword, List<String> customPermissions) {
         User existing = userRepo.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
         String hash = (plainPassword == null || plainPassword.isBlank())
                 ? existing.passwordHash()
                 : authService.hashPassword(plainPassword);

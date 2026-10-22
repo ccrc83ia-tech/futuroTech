@@ -1,16 +1,18 @@
 package com.futurotech.legal.application.service;
 
-import com.futurotech.legal.domain.exception.AuthenticationException;
-import com.futurotech.legal.domain.model.Role;
-import com.futurotech.legal.domain.model.User;
-import com.futurotech.legal.domain.port.out.UserRepositoryPort;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import com.futurotech.legal.domain.exception.AuthenticationException;
+import com.futurotech.legal.domain.model.Role;
+import com.futurotech.legal.domain.model.User;
+import com.futurotech.legal.domain.port.out.UserRepositoryPort;
 
 /**
  * Autenticación: verificación de credenciales con BCrypt y creación segura de
@@ -59,6 +61,13 @@ public class AuthService {
         if (!userRepo.findAll().isEmpty()) {
             return;
         }
+
+        // IMPORTANTE (seguridad): las contraseñas en claro se escriben SOLO en
+        // System.out, nunca por el logger. El logger puede tener appenders a
+        // ficheros o agregadores centralizados; enviar secretos allí los dejaría
+        // persistidos. stdout es efímero y el operador los copia una única vez.
+        log.warn("Primer arranque: generando credenciales iniciales para {} usuarios por defecto",
+                DEFAULT_USERS.size());
 
         String sep = "=".repeat(60);
         System.out.println(sep);

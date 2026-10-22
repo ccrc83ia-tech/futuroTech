@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
+import com.futurotech.legal.domain.exception.ResourceNotFoundException;
 import com.futurotech.legal.domain.exception.TenantNotFoundException;
 import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
@@ -42,6 +43,9 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(GenerateDocumentService.class);
     private static final int RAG_RESULTS = 10;
+    /** Presupuesto total de caracteres para el texto de adjuntos del caso, para no
+     *  exceder la ventana de contexto del modelo (evita el 413 de la API de IA). */
+    private static final int ATTACHMENTS_CHAR_BUDGET = 24_000;
     private static final int MAX_STRUCTURE_LINES = 80;
 
     private final TenantRepositoryPort tenantRepo;
@@ -70,7 +74,7 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         TenantConfig tenant = tenantRepo.findById(cmd.tenantId())
                 .orElseThrow(() -> new TenantNotFoundException(cmd.tenantId()));
         Template template = templateRepo.findById(cmd.templateId())
-                .orElseThrow(() -> new DocumentGenerationException("Plantilla no encontrada: " + cmd.templateId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Plantilla no encontrada: " + cmd.templateId()));
 
         String formatStructure = template.hasFormatDoc()
                 ? extractFormatStructure(template.formatDocBytes()) : null;
@@ -125,6 +129,11 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
                     .append(formatStructure).append("\n=== FIN DE ESTRUCTURA OBLIGATORIA ===");
         }
 
+        // Documentos aportados del caso (hechos). Se calcula antes para poder aclarar
+        // en el bloque de modo estricto que la restricción no aplica a estos hechos.
+        String attachmentsBlock = buildAttachmentsBlock(cmd.caseAttachments());
+        boolean hasAttachments = !attachmentsBlock.isEmpty();
+
         // RAG
         boolean ragStrict = cmd.ragStrict();
         boolean hasIndexedDocs = knowledgeBase.hasDocuments(template.templateId());
@@ -153,7 +162,12 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
                         .append("decretos, leyes y jurisprudencia que aparezcan TEXTUALMENTE en los fragmentos ")
                         .append("de abajo. Queda PROHIBIDO usar conocimiento propio, inventar contenido normativo ")
                         .append("o citar cualquier norma que no esté en estas fuentes. Si un argumento no tiene ")
-                        .append("respaldo en los fragmentos, NO lo incluyas.\n\n")
+                        .append("respaldo en los fragmentos, NO lo incluyas.")
+                        .append(hasAttachments
+                                ? " ESTA RESTRICCIÓN APLICA SOLO A NORMATIVA (leyes, decretos, jurisprudencia). "
+                                + "Los HECHOS del caso provienen de los documentos aportados (más abajo) y DEBES usarlos."
+                                : "")
+                        .append("\n\n")
                         .append(ragContext).append("\n=== FIN DE FUENTES AUTORIZADAS ===");
             } else {
                 systemPrompt.append("\n\nINSTRUCCIÓN ABSOLUTA — MODO ESTRICTO: ")
@@ -163,23 +177,30 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
                         .append("Queda PROHIBIDO citar, transcribir o mencionar el contenido de cualquier ")
                         .append("artículo, ley, decreto o sentencia. Puedes mencionar los nombres de las normas ")
                         .append("listadas en las reglas jurídicas, pero NUNCA su texto. Donde iría una cita ")
-                        .append("textual escribe exactamente: [texto no disponible en fuentes autorizadas].");
+                        .append("textual escribe exactamente: [texto no disponible en fuentes autorizadas].")
+                        .append(hasAttachments
+                                ? " NOTA: esta prohibición es solo para NORMATIVA. Los HECHOS del caso "
+                                + "provienen de los documentos aportados (más abajo) y DEBES incorporarlos."
+                                : "");
             }
         } else if (!ragContext.isEmpty()) {
             systemPrompt.append("\n\nDocumentos de referencia (prioriza estas fuentes, puedes complementar ")
                     .append("con tu conocimiento jurídico):\n\n").append(ragContext);
         }
 
-        // Documentos aportados del caso (hechos). Son del caso concreto, no fuentes
-        // normativas, por lo que se inyectan SIEMPRE, al margen del modo estricto.
-        String attachmentsBlock = buildAttachmentsBlock(cmd.caseAttachments());
-        if (!attachmentsBlock.isEmpty()) {
-            systemPrompt.append("\n\n=== DOCUMENTOS APORTADOS DEL CASO (HECHOS) ===\n")
-                    .append("El usuario adjuntó los siguientes documentos del caso concreto (p. ej. el ")
-                    .append("derecho de petición negado que motiva una tutela). Úsalos como HECHOS para dar ")
-                    .append("mayor solidez al documento: extrae fechas, entidades, pretensiones y respuestas, ")
-                    .append("y referéncialos con precisión. Son hechos aportados por la parte, NO fuentes ")
-                    .append("normativas: no los uses para citar leyes, decretos ni jurisprudencia.\n\n")
+        // Documentos aportados del caso (hechos). Se inyectan SIEMPRE, al margen del
+        // modo estricto (el bloque y hasAttachments se calcularon arriba).
+        if (hasAttachments) {
+            systemPrompt.append("\n\n=== DOCUMENTOS APORTADOS DEL CASO (HECHOS — USO OBLIGATORIO) ===\n")
+                    .append("INSTRUCCIÓN ABSOLUTA: El usuario adjuntó los documentos de abajo, que son los ")
+                    .append("HECHOS REALES de este caso concreto (p. ej. el derecho de petición negado que ")
+                    .append("motiva una tutela). DEBES basar la narración de hechos del documento en su ")
+                    .append("contenido: extrae y usa fechas, nombres de entidades, números de radicado/orden, ")
+                    .append("pretensiones, lo solicitado y lo respondido/negado, y referéncialos con precisión. ")
+                    .append("Estos hechos NO están sujetos a la restricción de fuentes normativas: son prueba ")
+                    .append("aportada por la parte y su uso es obligatorio. La restricción del modo estricto ")
+                    .append("aplica SOLO a citas de leyes, decretos y jurisprudencia, NO a estos hechos. ")
+                    .append("No inventes hechos que no aparezcan en los documentos.\n\n")
                     .append(attachmentsBlock)
                     .append("\n=== FIN DE DOCUMENTOS APORTADOS ===");
             log.info("Adjuntos del caso: {} documento(s) inyectado(s) en el prompt",
@@ -189,24 +210,52 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         Map<String, String> clean = cleanMetadata(cmd.caseFields());
         String userPrompt = "Genera el documento con plantilla '" + template.templateId()
                 + "' usando estos datos del caso:\n" + clean;
+        if (hasAttachments) {
+            userPrompt += "\n\nIMPORTANTE: Incorpora los HECHOS de los documentos aportados del caso "
+                    + "(sección 'DOCUMENTOS APORTADOS DEL CASO') en la narración de hechos y la "
+                    + "fundamentación, citando datos concretos (fechas, entidades, radicados, lo pedido "
+                    + "y lo negado).";
+        }
 
         return LegalContext.of(systemPrompt.toString(), userPrompt, clean);
     }
 
-    /** Concatena el texto de los adjuntos del caso, cada uno con su nombre como encabezado. */
+    /**
+     * Concatena el texto de los adjuntos del caso (cada uno con su nombre como
+     * encabezado), repartiendo un presupuesto de caracteres entre ellos y truncando
+     * de forma ordenada. Evita exceder la ventana de contexto del modelo (413).
+     */
     private static String buildAttachmentsBlock(List<CaseAttachment> attachments) {
         if (attachments == null || attachments.isEmpty()) {
             return "";
         }
+        List<CaseAttachment> withText = attachments.stream()
+                .filter(a -> a != null && a.hasText())
+                .toList();
+        if (withText.isEmpty()) {
+            return "";
+        }
+        // Presupuesto equitativo por documento (mínimo 500 chars cada uno).
+        int perDoc = Math.max(500, ATTACHMENTS_CHAR_BUDGET / withText.size());
+
         StringBuilder sb = new StringBuilder();
-        for (CaseAttachment att : attachments) {
-            if (att != null && att.hasText()) {
-                if (sb.length() > 0) {
-                    sb.append("\n\n---\n\n");
-                }
-                sb.append("[DOCUMENTO: ").append(att.fileName()).append("]\n")
-                        .append(att.extractedText());
+        for (CaseAttachment att : withText) {
+            if (sb.length() > 0) {
+                sb.append("\n\n---\n\n");
             }
+            String text = att.extractedText();
+            boolean truncated = text.length() > perDoc;
+            if (truncated) {
+                text = text.substring(0, perDoc);
+            }
+            sb.append("[DOCUMENTO: ").append(att.fileName()).append("]\n").append(text);
+            if (truncated) {
+                sb.append("\n[... documento truncado por longitud ...]");
+            }
+        }
+        if (sb.length() > 0) {
+            log.info("Adjuntos: bloque de {} chars (presupuesto {} por documento)",
+                    sb.length(), perDoc);
         }
         return sb.toString();
     }

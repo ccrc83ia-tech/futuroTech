@@ -1,16 +1,19 @@
 package com.futurotech.legal.infrastructure.adapter.out.persistence;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.futurotech.legal.domain.exception.ResourceNotFoundException;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
 import com.futurotech.legal.infrastructure.adapter.out.persistence.entity.GeneratedDocumentEntity;
 import com.futurotech.legal.infrastructure.adapter.out.persistence.repository.GeneratedDocumentJpaRepository;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /** Adaptador de persistencia del registro de documentos generados (auditoría). */
 @Component
@@ -53,7 +56,7 @@ public class GeneratedDocumentAdapter implements GeneratedDocumentPort {
     @Transactional
     public void updateStatus(UUID id, DocumentStatus status, String reviewedBy) {
         GeneratedDocumentEntity e = jpa.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Documento no encontrado: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado: " + id));
         e.setStatus(status.name());
         e.setReviewedBy(reviewedBy);
         e.setReviewedAt(Instant.now());

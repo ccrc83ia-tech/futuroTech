@@ -94,5 +94,13 @@ management:
 
 logging:
   level:
-    root: INFO
-    com.futurotech.legal: INFO
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.futurotech.legal: ${LOG_LEVEL_APP:INFO}
+    # Reducir ruido de frameworks; subir a DEBUG puntualmente para diagnóstico.
+    org.springframework.web: ${LOG_LEVEL_WEB:INFO}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:INFO}
+  # El traceId lo inyecta CorrelationIdFilter en el MDC (ver infra/config).
+  # Se incluye entre corchetes en cada línea para rastrear una petición completa.
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [${spring.application.name:futurotech-legal}] [%X{traceId:-no-trace}] [%t] %-40.40logger{39} : %m%n%wEx"
