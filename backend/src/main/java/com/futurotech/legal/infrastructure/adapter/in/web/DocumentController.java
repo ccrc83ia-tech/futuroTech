@@ -300,21 +300,36 @@ public class DocumentController {
         String entityName = d.entityId() != null
                 ? entityRepo.findById(d.entityId()).map(e -> e.name()).orElse(d.entityId())
                 : null;
-        // Resuelve username → nombre completo para el autor y el revisor
+        // Resuelve username o UUID → nombre completo para el autor y el revisor.
+        // Documentos viejos tienen el UUID; documentos nuevos tienen el username.
         String authorName = d.authorUserId() != null
-                ? userRepo.findByUsername(d.authorUserId())
-                          .map(u -> u.fullName())
-                          .orElse(d.authorUserId())
+                ? resolveUserName(d.authorUserId())
                 : null;
         String reviewerName = d.reviewedBy() != null
-                ? userRepo.findByUsername(d.reviewedBy())
-                          .map(u -> u.fullName())
-                          .orElse(d.reviewedBy())
+                ? resolveUserName(d.reviewedBy())
                 : null;
         return new GeneratedDocResponse(
                 d.id().toString(), d.templateId(), d.status().name(), d.fileName(),
                 "/api/v1/documents/" + d.id() + "/download", d.createdAt(),
                 clientName, d.entityId(), entityName, authorName,
                 reviewerName, d.reviewedAt(), d.deadline(), d.internalDocket());
+    }
+
+    /**
+     * Resuelve un identificador de usuario (username o UUID) al nombre completo.
+     * Documentos generados antes de la migración tienen el UUID; los nuevos el username.
+     */
+    private String resolveUserName(String usernameOrId) {
+        var byUsername = userRepo.findByUsername(usernameOrId);
+        if (byUsername.isPresent()) {
+            return byUsername.get().fullName();
+        }
+        try {
+            var byId = userRepo.findById(usernameOrId);
+            if (byId.isPresent()) {
+                return byId.get().fullName();
+            }
+        } catch (Exception ignored) { /* no era UUID válido */ }
+        return usernameOrId;
     }
 }
