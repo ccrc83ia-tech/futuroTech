@@ -57,6 +57,7 @@ import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.Gener
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.StatsResponse;
 import com.futurotech.legal.infrastructure.adapter.out.export.DocxExporter;
+import com.futurotech.legal.infrastructure.adapter.out.export.DocxSignatureStamper;
 import com.futurotech.legal.infrastructure.adapter.out.export.DocxWatermarkStamper;
 import com.futurotech.legal.infrastructure.adapter.out.export.PdfExporter;
 import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
@@ -76,6 +77,7 @@ public class DocumentController {
     private final CaseDocumentExtractor caseDocumentExtractor;
     private final PdfExporter pdfExporter;
     private final DocxWatermarkStamper watermarkStamper;
+    private final DocxSignatureStamper signatureStamper;
     private final EntityRepositoryPort entityRepo;
     private final UserRepositoryPort userRepo;
     private final TemplateRepositoryPort templateRepo;
@@ -85,6 +87,7 @@ public class DocumentController {
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
                               CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
                               PdfExporter pdfExporter, DocxWatermarkStamper watermarkStamper,
+                              DocxSignatureStamper signatureStamper,
                               EntityRepositoryPort entityRepo, UserRepositoryPort userRepo,
                               TemplateRepositoryPort templateRepo, DocxExporter docxExporter,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
@@ -94,6 +97,7 @@ public class DocumentController {
         this.caseDocumentExtractor = caseDocumentExtractor;
         this.pdfExporter = pdfExporter;
         this.watermarkStamper = watermarkStamper;
+        this.signatureStamper = signatureStamper;
         this.entityRepo = entityRepo;
         this.userRepo = userRepo;
         this.templateRepo = templateRepo;
@@ -175,6 +179,13 @@ public class DocumentController {
         // (APPROVED) se descarga limpio. La marca se aplica al vuelo según el
         // estado actual, no se persiste en el archivo del disco.
         String watermark = doc.status() == DocumentStatus.DRAFT ? DRAFT_WATERMARK : null;
+
+        // Firma manuscrita: se estampa solo en documentos APROBADOS, al vuelo en
+        // la descarga (nunca en borrador ni anulado). Es excluyente con la marca
+        // de agua BORRADOR, que solo aplica a los documentos en DRAFT.
+        if (doc.status() == DocumentStatus.APPROVED) {
+            docxBytes = signatureStamper.stamp(docxBytes);
+        }
 
         if ("pdf".equalsIgnoreCase(format)) {
             Branding branding = companyService.getActive().map(TenantConfig::branding).orElse(null);

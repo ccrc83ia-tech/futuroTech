@@ -215,3 +215,28 @@ idempotente: volver a ejecutarlo reindexa sin duplicar.
 > Verificación rápida tras la carga: en la UI de Plantillas, cada plantilla debe
 > mostrar su documento modelo y sus fuentes RAG; genere un documento de prueba y
 > compárelo contra la minuta real (membrete, fuente, pie y estructura).
+
+---
+
+## Firma manuscrita en documentos aprobados
+
+Cuando un documento pasa a estado **APROBADO**, la app estampa la firma
+manuscrita escaneada sobre la línea del firmante (tras "Atentamente,"), al vuelo
+en la descarga. En **BORRADOR** no se firma (lleva la marca de agua "BORRADOR");
+si se anula la aprobación, el documento vuelve a descargarse sin firma. El archivo
+en disco no se modifica: la firma se aplica solo al generar la descarga.
+
+Configuración (variables de entorno del backend):
+
+| Variable | Descripción | Por defecto |
+|---|---|---|
+| `SIGNATURE_IMAGE_PATH` | Ruta a la imagen (PNG/JPG) de la firma manuscrita. Vacío = no se firma. | (vacío) |
+| `SIGNATURE_WIDTH_PT` | Ancho de la firma en puntos. | 120 |
+| `SIGNATURE_HEIGHT_PT` | Alto de la firma en puntos. | 60 |
+
+Monte la imagen de firma en el contenedor del backend y apunte `SIGNATURE_IMAGE_PATH`
+a esa ruta. Si la ruta no existe o está vacía, la descarga funciona igual, sin firma.
+
+> Limitación conocida: la firma aparece en la descarga **DOCX**. La descarga en
+> PDF se reconstruye a partir del texto del documento y aún no incluye imágenes,
+> por lo que el PDF sale sin la firma; use el DOCX para el documento firmado.

@@ -51,6 +51,15 @@ rag:
 docs:
   output-dir: ${DOCS_OUTPUT_DIR:generated_docs}
 
+# --- Firma escaneada ---
+# Imagen (PNG/JPG) de la firma manuscrita que se estampa, al vuelo y solo en la
+# descarga, cuando el documento está APROBADO (nunca en BORRADOR). Si la ruta no
+# existe o está vacía, no se estampa nada y el documento se descarga sin firma.
+signature:
+  image-path: ${SIGNATURE_IMAGE_PATH:}
+  width-pt: ${SIGNATURE_WIDTH_PT:120}
+  height-pt: ${SIGNATURE_HEIGHT_PT:60}
+
 # --- Seguridad / JWT ---
 security:
   jwt:
