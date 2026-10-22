@@ -84,7 +84,7 @@ function MetricCard({
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { fullName, hasPermission } = useAuthStore();
-  const canReview  = hasPermission(PERMISSIONS.MANAGE_USERS) || hasPermission(PERMISSIONS.MANAGE_TEMPLATES);
+  const canReview  = hasPermission(PERMISSIONS.VIEW_ALL_DOCUMENTS);
   const canGenerate = hasPermission(PERMISSIONS.GENERATE_DOCUMENT);
 
   const statsQuery    = useQuery({ queryKey: ["stats"],     queryFn: documentsApi.stats,     enabled: canReview });

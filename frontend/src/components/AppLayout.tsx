@@ -43,7 +43,7 @@ const NAV: NavItem[] = [
   { label: "Inicio",               path: "/",           icon: <DashboardIcon /> },
   { label: "Generar documento",    path: "/generar",    icon: <AddCircleIcon />,   permission: PERMISSIONS.GENERATE_DOCUMENT },
   { label: "Mis documentos",       path: "/documentos", icon: <DescriptionIcon />, permission: PERMISSIONS.GENERATE_DOCUMENT },
-  { label: "Todos los documentos", path: "/todos",      icon: <FolderOpenIcon />,  permission: PERMISSIONS.MANAGE_USERS },
+  { label: "Todos los documentos", path: "/todos",      icon: <FolderOpenIcon />,  permission: PERMISSIONS.VIEW_ALL_DOCUMENTS },
   { label: "Plantillas",           path: "/plantillas", icon: <ArticleIcon />,     permission: PERMISSIONS.VIEW_TEMPLATES },
   { label: "Entidades",            path: "/entidades",  icon: <ContactsIcon />,    permission: PERMISSIONS.VIEW_ENTITIES },
   { label: "Empresa",              path: "/empresa",    icon: <BusinessIcon />,    permission: PERMISSIONS.VIEW_COMPANY },

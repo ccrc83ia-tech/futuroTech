@@ -38,7 +38,8 @@ public enum Role {
                     Permission.VIEW_TEMPLATES,
                     Permission.VIEW_ENTITIES,
                     Permission.MANAGE_ENTITIES,
-                    Permission.VIEW_COMPANY);
+                    Permission.VIEW_COMPANY,
+                    Permission.VIEW_ALL_DOCUMENTS);
             case PASANTE -> EnumSet.of(
                     Permission.GENERATE_DOCUMENT,
                     Permission.VIEW_TEMPLATES,

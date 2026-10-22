@@ -67,6 +67,7 @@ const PERM_LABEL: Record<string, string> = {
   [PERMISSIONS.VIEW_COMPANY]:       "Ver datos de la empresa",
   [PERMISSIONS.MANAGE_COMPANY]:     "Gestionar empresa",
   [PERMISSIONS.MANAGE_USERS]:       "Gestionar usuarios",
+  [PERMISSIONS.VIEW_ALL_DOCUMENTS]: "Ver todos los documentos",
 };
 
 /** Permisos por defecto de cada rol (debe coincidir con Role.defaultPermissions() del backend). */
@@ -78,6 +79,7 @@ const ROLE_DEFAULT_PERMS: Record<Role, string[]> = {
     PERMISSIONS.VIEW_ENTITIES,
     PERMISSIONS.MANAGE_ENTITIES,
     PERMISSIONS.VIEW_COMPANY,
+    PERMISSIONS.VIEW_ALL_DOCUMENTS,
   ],
   pasante:  [
     PERMISSIONS.GENERATE_DOCUMENT,

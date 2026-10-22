@@ -111,4 +111,5 @@ export const PERMISSIONS = {
   VIEW_COMPANY: "view_company",
   MANAGE_COMPANY: "manage_company",
   MANAGE_USERS: "manage_users",
+  VIEW_ALL_DOCUMENTS: "view_all_documents",
 } as const;

@@ -199,9 +199,9 @@ public class DocumentController {
                 .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
     }
 
-    /** Lista todos los documentos (admin y abogado ven los de todos los usuarios). */
+    /** Lista todos los documentos del despacho (requiere permiso de ver todos los documentos). */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'ABOGADO')")
+    @PreAuthorize("hasAuthority('PERM_view_all_documents')")
     public List<GeneratedDocResponse> all() {
         return auditTrail.findAll().stream().map(this::toResponse).toList();
     }
@@ -267,7 +267,7 @@ public class DocumentController {
 
     /** Métricas para el dashboard del despacho. */
     @GetMapping("/stats")
-    @PreAuthorize("hasAnyRole('ADMIN', 'ABOGADO')")
+    @PreAuthorize("hasAuthority('PERM_view_all_documents')")
     public StatsResponse stats() {
         Instant now = Instant.now();
         Instant monthStart = now.atZone(java.time.ZoneId.of("America/Bogota"))

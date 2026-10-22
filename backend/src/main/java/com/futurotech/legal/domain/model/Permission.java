@@ -9,7 +9,8 @@ public enum Permission {
     MANAGE_ENTITIES("manage_entities"),
     VIEW_COMPANY("view_company"),
     MANAGE_COMPANY("manage_company"),
-    MANAGE_USERS("manage_users");
+    MANAGE_USERS("manage_users"),
+    VIEW_ALL_DOCUMENTS("view_all_documents");
 
     private final String value;
 
