@@ -30,6 +30,19 @@ export const templatesApi = {
     return api.post(`/templates/${id}/format-doc`, form);
   },
   deleteFormatDoc: (id: string) => api.delete(`/templates/${id}/format-doc`),
+
+  // --- Corpus RAG (fuentes normativas autorizadas) por plantilla ---
+  listRagDocuments: (id: string) =>
+    api.get<string[]>(`/templates/${id}/documents`).then((r) => r.data),
+  uploadRagDocument: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<{ docName: string; chunks: number }>(`/templates/${id}/documents`, form)
+      .then((r) => r.data);
+  },
+  deleteRagDocument: (id: string, docName: string) =>
+    api.delete(`/templates/${id}/documents`, { params: { docName } }),
 };
 
 // --- Entities ---
@@ -80,11 +93,14 @@ export const documentsApi = {
    * JWT (una navegación directa por <a href> no lo adjuntaría y daría 403).
    * Recibe el archivo como blob y dispara la descarga en el navegador.
    */
-  download: async (id: string, fileName?: string) => {
-    const resp = await api.get(`/documents/${id}/download`, { responseType: "blob" });
+  download: async (id: string, fileName?: string, format: "docx" | "pdf" = "docx") => {
+    const resp = await api.get(`/documents/${id}/download`, {
+      responseType: "blob",
+      params: { format },
+    });
     const disposition = resp.headers["content-disposition"] as string | undefined;
     const match = disposition?.match(/filename="?([^"]+)"?/);
-    const name = fileName ?? match?.[1] ?? `documento-${id}.docx`;
+    const name = fileName ?? match?.[1] ?? `documento-${id}.${format}`;
 
     const url = window.URL.createObjectURL(resp.data as Blob);
     const link = document.createElement("a");

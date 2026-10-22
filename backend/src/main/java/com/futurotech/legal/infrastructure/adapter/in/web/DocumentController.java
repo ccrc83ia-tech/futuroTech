@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,15 +31,18 @@ import org.springframework.web.multipart.MultipartFile;
 import com.futurotech.legal.application.service.CompanyService;
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.exception.ResourceNotFoundException;
+import com.futurotech.legal.domain.model.Branding;
 import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
+import com.futurotech.legal.domain.model.TenantConfig;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
+import com.futurotech.legal.infrastructure.adapter.out.export.PdfExporter;
 import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
 
 import jakarta.validation.Valid;
@@ -51,15 +55,18 @@ public class DocumentController {
     private final GeneratedDocumentPort auditTrail;
     private final CompanyService companyService;
     private final CaseDocumentExtractor caseDocumentExtractor;
+    private final PdfExporter pdfExporter;
     private final Path outputDir;
 
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
                               CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
+                              PdfExporter pdfExporter,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
         this.generateUseCase = generateUseCase;
         this.auditTrail = auditTrail;
         this.companyService = companyService;
         this.caseDocumentExtractor = caseDocumentExtractor;
+        this.pdfExporter = pdfExporter;
         this.outputDir = Path.of(outputDir);
     }
 
@@ -114,21 +121,44 @@ public class DocumentController {
         return auditTrail.findByAuthor(auth.getName()).stream().map(DocumentController::toResponse).toList();
     }
 
+    /**
+     * Descarga el documento. Por defecto en .docx (el archivo generado tal cual).
+     * Con {@code ?format=pdf} se convierte el .docx a PDF al vuelo, aplicando el
+     * membrete de la firma, sin volver a invocar a la IA ni guardar otro archivo.
+     */
     @GetMapping("/{id}/download")
     @PreAuthorize("hasAuthority('PERM_generate_document')")
-    public ResponseEntity<Resource> download(@PathVariable UUID id) throws IOException {
+    public ResponseEntity<Resource> download(@PathVariable UUID id,
+                                             @RequestParam(value = "format", defaultValue = "docx") String format)
+            throws IOException {
         GeneratedDocument doc = auditTrail.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado"));
         Path file = outputDir.resolve(doc.fileName());
         if (!Files.exists(file)) {
             return ResponseEntity.notFound().build();
         }
-        byte[] bytes = Files.readAllBytes(file);
+        byte[] docxBytes = Files.readAllBytes(file);
+
+        if ("pdf".equalsIgnoreCase(format)) {
+            Branding branding = companyService.getActive().map(TenantConfig::branding).orElse(null);
+            byte[] pdf = pdfExporter.buildFromDocx(docxBytes, branding);
+            String pdfName = stripExtension(doc.fileName()) + ".pdf";
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + pdfName + "\"")
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .body(new ByteArrayResource(pdf));
+        }
+
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.fileName() + "\"")
                 .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                .body(new ByteArrayResource(bytes));
+                .body(new ByteArrayResource(docxBytes));
+    }
+
+    private static String stripExtension(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     /** Transición de estado de revisión. Solo abogado o admin pueden revisar/aprobar. */

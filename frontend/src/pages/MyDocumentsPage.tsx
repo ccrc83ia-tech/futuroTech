@@ -93,9 +93,16 @@ export default function MyDocumentsPage() {
                   <Button
                     size="small"
                     startIcon={<DownloadIcon />}
-                    onClick={() => documentsApi.download(d.transactionId, d.fileName)}
+                    onClick={() => documentsApi.download(d.transactionId, d.fileName, "docx")}
                   >
-                    Descargar
+                    Word
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => documentsApi.download(d.transactionId, undefined, "pdf")}
+                  >
+                    PDF
                   </Button>
                   {canReview && d.status === "DRAFT" && (
                     <Button

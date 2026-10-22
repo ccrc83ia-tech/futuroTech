@@ -1,6 +1,7 @@
 import ArticleIcon from "@mui/icons-material/Article";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import {
   Box,
@@ -31,6 +32,7 @@ import { PERMISSIONS } from "../api/types";
 import { EmptyState, LoadingState } from "../components/states";
 import { useNotify } from "../components/NotificationProvider";
 import { useAuthStore } from "../store/auth";
+import RagDocumentsDialog from "./RagDocumentsDialog";
 
 interface EditTemplate {
   templateId: string;
@@ -64,6 +66,7 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState<EditTemplate | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+  const [ragTarget, setRagTarget] = useState<Template | null>(null);
 
   const save = useMutation({
     mutationFn: (e: EditTemplate) =>
@@ -154,6 +157,14 @@ export default function TemplatesPage() {
                     : <Chip label="Sin formato" size="small" />}
                 </TableCell>
                 <TableCell align="right">
+                  <Tooltip title="Fuentes normativas (corpus RAG)">
+                    <IconButton
+                      aria-label={`Fuentes normativas de ${t.name}`}
+                      onClick={() => setRagTarget(t)}
+                    >
+                      <MenuBookIcon />
+                    </IconButton>
+                  </Tooltip>
                   {canManage && (
                     <>
                       <Tooltip title="Subir documento modelo (.docx)">
@@ -213,6 +224,13 @@ export default function TemplatesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <RagDocumentsDialog
+        templateId={ragTarget?.templateId ?? null}
+        templateName={ragTarget?.name}
+        canManage={canManage}
+        onClose={() => setRagTarget(null)}
+      />
     </Box>
   );
 }

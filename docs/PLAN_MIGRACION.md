@@ -57,6 +57,13 @@ Proyecto destino: `C:\proyecto\futuroTech` · rama `feature/migracion` · base p
 - ⏳ **Backup automático**: el script existe y el agendamiento está documentado; falta programarlo en el servidor real.
 - ⏳ **Verificación e2e** (requiere Docker/Postgres/Ollama): único bloque que no se puede ejecutar en este entorno. **Checklist de pruebas listo en `docs/OPERACION.md §7`** para ejecutar en un host con Docker.
 
+### Cierre de gaps tras auditoría (post-MVP)
+- ✅ **Ingesta RAG por plantilla vía API + UI**: `GET/POST/DELETE /templates/{id}/documents` (`TemplateService` + `CaseDocumentExtractor`, ingesta idempotente) y diálogo "Fuentes normativas" en `TemplatesPage`. Antes el corpus solo se sembraba al arranque; ahora la firma lo amplía desde la UI. Es la pieza que faltaba para que el modo RAG estricto sea útil con fuentes propias.
+- ✅ **Export PDF cableado**: `PdfExporter.buildFromDocx` + `download?format=pdf` (convierte al vuelo con branding). La UI ofrece Word y PDF. Antes `PdfExporter` existía pero era código muerto.
+- ✅ **Cola de generación (concurrencia 1)**: `Semaphore` configurable en `GenerateDocumentService` (`generation.max-concurrent`/`generation.acquire-timeout-seconds`). Cumple la decisión de diseño "1 a la vez" para Ollama on-premise.
+- ✅ **Tests ampliados**: `GenerateDocumentServiceTest` (prompt + RAG estricto) y `TemplateControllerSecurityTest` (MockMvc, `@PreAuthorize`). Cubren la lógica más compleja y el RBAC a nivel HTTP, que antes no tenían tests.
+- ⏳ **`ClientDataProviderPort`**: sigue como gancho a futuro (sin adaptador), según lo previsto en el MVP.
+
 ---
 
 ## 1. Objetivo y principios
@@ -190,11 +197,12 @@ La mayor parte del backend: exponer como REST lo que Streamlit hacía contra el 
 | POST | `/api/v1/auth/refresh` | Renovar token |
 | GET/POST/PUT/DELETE | `/api/v1/users` | CRUD usuarios + permisos |
 | GET/POST/PUT/DELETE | `/api/v1/templates` | CRUD plantillas + versiones |
-| POST/DELETE | `/api/v1/templates/{id}/documents` | Subir/borrar documentos RAG |
+| GET/POST/DELETE | `/api/v1/templates/{id}/documents` | Listar/subir/borrar documentos RAG (corpus por plantilla) ✅ |
+| POST/DELETE | `/api/v1/templates/{id}/format-doc` | Subir/borrar documento modelo .docx ✅ |
 | GET/POST/PUT/DELETE | `/api/v1/entities` | CRUD entidades |
 | GET/PUT | `/api/v1/company` | Tenant / branding |
 | POST | `/api/v1/documents/generate` | Generación (ya existe hoy) |
-| GET | `/api/v1/documents/{id}/download` | Descarga DOCX/PDF |
+| GET | `/api/v1/documents/{id}/download` | Descarga DOCX (o PDF con `?format=pdf`) ✅ |
 | GET | `/health` | Health check profundo |
 
 ---

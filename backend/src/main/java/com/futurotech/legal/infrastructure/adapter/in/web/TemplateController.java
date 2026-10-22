@@ -1,12 +1,8 @@
 package com.futurotech.legal.infrastructure.adapter.in.web;
 
-import com.futurotech.legal.application.service.TemplateService;
-import com.futurotech.legal.domain.model.Template;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.TemplateDtos.SaveTemplateRequest;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.TemplateDtos.TemplateResponse;
-import jakarta.validation.Valid;
 import java.io.IOException;
 import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,6 +17,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.futurotech.legal.application.service.TemplateService;
+import com.futurotech.legal.domain.model.Template;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.TemplateDtos.RagDocumentResponse;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.TemplateDtos.SaveTemplateRequest;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.TemplateDtos.TemplateResponse;
+
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/templates")
@@ -81,6 +85,34 @@ public class TemplateController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteFormatDoc(@PathVariable String templateId) {
         templateService.clearFormatDoc(templateId);
+    }
+
+    // --- Corpus RAG por plantilla (fuentes normativas autorizadas) ---
+
+    /** Lista los documentos RAG (fuentes normativas) indexados para la plantilla. */
+    @GetMapping("/{templateId}/documents")
+    @PreAuthorize("hasAuthority('PERM_view_templates')")
+    public List<String> listRagDocuments(@PathVariable String templateId) {
+        return templateService.listRagDocuments(templateId);
+    }
+
+    /** Sube e indexa un documento (PDF/DOCX/TXT) como fuente normativa de la plantilla. */
+    @PostMapping("/{templateId}/documents")
+    @PreAuthorize("hasAuthority('PERM_manage_templates')")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RagDocumentResponse uploadRagDocument(@PathVariable String templateId,
+                                                 @RequestParam("file") MultipartFile file) {
+        int chunks = templateService.addRagDocument(templateId, file);
+        return new RagDocumentResponse(file.getOriginalFilename(), chunks);
+    }
+
+    /** Elimina un documento RAG (todos sus fragmentos) de la plantilla. */
+    @DeleteMapping("/{templateId}/documents")
+    @PreAuthorize("hasAuthority('PERM_manage_templates')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteRagDocument(@PathVariable String templateId,
+                                  @RequestParam("docName") String docName) {
+        templateService.deleteRagDocument(templateId, docName);
     }
 
     private TemplateResponse save(SaveTemplateRequest req) {

@@ -1,5 +1,13 @@
 package com.futurotech.legal.infrastructure.adapter.out.export;
 
+import java.awt.Color;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+
+import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.springframework.stereotype.Component;
+
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.model.Branding;
 import com.lowagie.text.Document;
@@ -8,13 +16,26 @@ import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.pdf.PdfWriter;
-import java.awt.Color;
-import java.io.ByteArrayOutputStream;
-import org.springframework.stereotype.Component;
 
 /** Generación de PDF con membrete usando OpenPDF. */
 @Component
 public class PdfExporter {
+
+    /**
+     * Construye un PDF a partir de los bytes de un .docx ya generado, extrayendo
+     * su texto y aplicando el membrete de la firma. Permite ofrecer descarga en
+     * PDF sin volver a invocar a la IA ni almacenar un segundo artefacto.
+     */
+    public byte[] buildFromDocx(byte[] docxBytes, Branding branding) {
+        String text;
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(docxBytes));
+                XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
+            text = extractor.getText();
+        } catch (Exception e) {
+            throw new DocumentGenerationException("No se pudo convertir el documento a PDF", e);
+        }
+        return build(text, branding);
+    }
 
     public byte[] build(String content, Branding branding) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {

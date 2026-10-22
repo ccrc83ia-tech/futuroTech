@@ -271,9 +271,17 @@ export default function GenerateWizard() {
               <Button
                 variant="contained"
                 startIcon={<DownloadIcon />}
-                onClick={() => documentsApi.download(result.transactionId, result.fileName)}
+                onClick={() => documentsApi.download(result.transactionId, result.fileName, "docx")}
               >
-                Descargar documento (.docx)
+                Descargar Word
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<DownloadIcon />}
+                sx={{ ml: 1 }}
+                onClick={() => documentsApi.download(result.transactionId, undefined, "pdf")}
+              >
+                Descargar PDF
               </Button>
               <Button sx={{ ml: 1 }} onClick={reset}>Generar otro</Button>
             </Box>

@@ -9,11 +9,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
@@ -55,19 +58,55 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     private final KnowledgeBasePort knowledgeBase;
     private final GeneratedDocumentPort auditTrail;
 
+    /**
+     * Serializa las generaciones a {@code generation.max-concurrent} a la vez
+     * (por defecto 1). Con Ollama on-premise el modelo compite por GPU/CPU y
+     * varias generaciones simultáneas degradan o tumban el servicio; con una API
+     * remota evita ráfagas que disparen límites de tasa. Las peticiones que no
+     * obtienen permiso dentro del timeout fallan con un mensaje claro en vez de
+     * encolarse indefinidamente.
+     */
+    private final Semaphore generationSlots;
+    private final long acquireTimeoutSeconds;
+
     public GenerateDocumentService(TenantRepositoryPort tenantRepo, TemplateRepositoryPort templateRepo,
                                    AIServicePort ai, FileExporterPort fileExporter,
-                                   KnowledgeBasePort knowledgeBase, GeneratedDocumentPort auditTrail) {
+                                   KnowledgeBasePort knowledgeBase, GeneratedDocumentPort auditTrail,
+                                   @Value("${generation.max-concurrent:1}") int maxConcurrent,
+                                   @Value("${generation.acquire-timeout-seconds:180}") long acquireTimeoutSeconds) {
         this.tenantRepo = tenantRepo;
         this.templateRepo = templateRepo;
         this.ai = ai;
         this.fileExporter = fileExporter;
         this.knowledgeBase = knowledgeBase;
         this.auditTrail = auditTrail;
+        this.generationSlots = new Semaphore(Math.max(1, maxConcurrent), true);
+        this.acquireTimeoutSeconds = acquireTimeoutSeconds;
     }
 
     @Override
     public GeneratedDocument generate(GenerateCommand cmd) {
+        boolean acquired;
+        try {
+            acquired = generationSlots.tryAcquire(acquireTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DocumentGenerationException("La generación fue interrumpida. Intente de nuevo.");
+        }
+        if (!acquired) {
+            log.warn("Generación rechazada: no hay cupo disponible tras {}s de espera", acquireTimeoutSeconds);
+            throw new DocumentGenerationException(
+                    "El servicio de generación está ocupado procesando otra solicitud. "
+                    + "Espere a que termine e intente de nuevo.");
+        }
+        try {
+            return doGenerate(cmd);
+        } finally {
+            generationSlots.release();
+        }
+    }
+
+    private GeneratedDocument doGenerate(GenerateCommand cmd) {
         UUID transactionId = UUID.randomUUID();
         log.info("[{}] Inicio generación — tenant={} template={}", transactionId, cmd.tenantId(), cmd.templateId());
 

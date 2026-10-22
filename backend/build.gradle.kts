@@ -60,6 +60,9 @@ dependencies {
 
     // --- Tests ---
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Spring Boot 4 es modular: el slice @WebMvcTest / @AutoConfigureMockMvc ya no
+    // viene en spring-boot-test-autoconfigure, sino en este starter dedicado.
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")

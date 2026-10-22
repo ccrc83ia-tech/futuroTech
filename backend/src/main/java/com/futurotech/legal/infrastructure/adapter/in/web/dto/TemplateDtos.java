@@ -1,7 +1,8 @@
 package com.futurotech.legal.infrastructure.adapter.in.web.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+
+import jakarta.validation.constraints.NotBlank;
 
 public final class TemplateDtos {
 
@@ -29,6 +30,13 @@ public final class TemplateDtos {
             String systemPrompt,
             List<String> legalRules,
             boolean ragStrict
+    ) {
+    }
+
+    /** Resultado de indexar un documento RAG: nombre y nº de fragmentos generados. */
+    public record RagDocumentResponse(
+            String docName,
+            int chunks
     ) {
     }
 }
