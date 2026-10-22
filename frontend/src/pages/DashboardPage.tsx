@@ -25,24 +25,8 @@ import { useNavigate } from "react-router-dom";
 import { documentsApi, templatesApi } from "../api/endpoints";
 import type { GeneratedDoc } from "../api/types";
 import { PERMISSIONS } from "../api/types";
+import { DeadlineChip } from "../components/DeadlineChip";
 import { useAuthStore } from "../store/auth";
-
-// ─── Helpers de plazo ─────────────────────────────────────────────────────────
-
-function deadlineDaysLeft(deadline: string | null): number | null {
-  if (!deadline) return null;
-  const diff = new Date(deadline).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
-
-function DeadlineChip({ deadline }: { deadline: string | null }) {
-  const days = deadlineDaysLeft(deadline);
-  if (days === null) return <Typography variant="body2" color="text.disabled">—</Typography>;
-  if (days < 0) return <Chip label="Vencido" color="error" size="small" icon={<WarningAmberIcon />} />;
-  if (days <= 3) return <Chip label={`${days}d`} color="error" size="small" icon={<WarningAmberIcon />} />;
-  if (days <= 7) return <Chip label={`${days}d`} color="warning" size="small" icon={<AccessTimeIcon />} />;
-  return <Chip label={`${days}d`} color="success" size="small" icon={<AccessTimeIcon />} />;
-}
 
 // ─── Tarjeta de métrica ───────────────────────────────────────────────────────
 
