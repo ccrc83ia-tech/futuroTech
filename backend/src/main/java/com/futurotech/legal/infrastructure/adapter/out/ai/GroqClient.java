@@ -1,16 +1,10 @@
 package com.futurotech.legal.infrastructure.adapter.out.ai;
 
-import com.futurotech.legal.domain.exception.DocumentGenerationException;
-import com.futurotech.legal.domain.model.LegalContext;
-import com.futurotech.legal.domain.port.out.AIServicePort;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
-import io.github.resilience4j.retry.Retry;
-import io.github.resilience4j.retry.RetryRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +12,15 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import com.futurotech.legal.domain.exception.DocumentGenerationException;
+import com.futurotech.legal.domain.model.LegalContext;
+import com.futurotech.legal.domain.port.out.AIServicePort;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryRegistry;
 
 /**
  * Adaptador de IA sobre Groq (API compatible con OpenAI: POST /chat/completions).
@@ -74,6 +77,9 @@ public class GroqClient implements AIServicePort {
             log.error("Groq circuit breaker ABIERTO: {}", e.getMessage());
             throw new DocumentGenerationException(
                     "Servicio de IA no disponible temporalmente. Intente en unos minutos.");
+        } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
+            log.error("Groq respondió {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new DocumentGenerationException(mapHttpError(e));
         } catch (DocumentGenerationException e) {
             throw e;
         } catch (Exception e) {
@@ -81,6 +87,23 @@ public class GroqClient implements AIServicePort {
             throw new DocumentGenerationException(
                     "Error al generar el documento: " + e.getClass().getSimpleName());
         }
+    }
+
+    /** Traduce un error HTTP del proveedor de IA a un mensaje accionable para el usuario. */
+    private static String mapHttpError(
+            org.springframework.web.reactive.function.client.WebClientResponseException e) {
+        int status = e.getStatusCode().value();
+        return switch (status) {
+            case 413 -> "El contenido enviado es demasiado grande. Reduzca el número o tamaño de "
+                    + "los documentos adjuntos e intente de nuevo.";
+            case 429 -> "Se alcanzó el límite de solicitudes del servicio de IA. "
+                    + "Espere un momento e intente de nuevo.";
+            case 401, 403 -> "Error de autenticación con el servicio de IA. "
+                    + "Verifique la configuración (GROQ_API_KEY).";
+            case 400 -> "El servicio de IA rechazó la solicitud. Puede que los documentos adjuntos "
+                    + "excedan la capacidad del modelo; reduzca el contenido e intente de nuevo.";
+            default -> "El servicio de IA devolvió un error (" + status + "). Intente de nuevo.";
+        };
     }
 
     private String callApi(LegalContext context) {
