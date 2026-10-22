@@ -1,4 +1,19 @@
-import { Alert, Box, Button, Card, CardContent, CircularProgress, TextField, Typography } from "@mui/material";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import GavelIcon from "@mui/icons-material/Gavel";
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { errorMessage } from "../api/client";
@@ -9,6 +24,7 @@ export default function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,15 +43,29 @@ export default function LoginPage() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <Card sx={{ width: 400, maxWidth: "90vw" }}>
-        <CardContent sx={{ p: 4 }}>
-          <Typography variant="h5" align="center" color="primary" gutterBottom>
-            FuturoTech AI
-          </Typography>
-          <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
-            Motor Jurídico Universal
-          </Typography>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        p: 2,
+        background: "linear-gradient(135deg, #1a237e 0%, #3949ab 100%)",
+      }}
+    >
+      <Card sx={{ width: 420, maxWidth: "100%", boxShadow: 6 }}>
+        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mb: 3 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 56, height: 56, mb: 1.5 }}>
+              <GavelIcon />
+            </Avatar>
+            <Typography variant="h5" align="center" color="primary" sx={{ fontWeight: 600 }}>
+              FuturoTech AI
+            </Typography>
+            <Typography variant="body2" align="center" color="text.secondary">
+              Motor Jurídico Universal
+            </Typography>
+          </Box>
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -47,14 +77,31 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
+              autoComplete="username"
             />
             <TextField
               label="Contraseña"
-              type="password"
+              type={showPassword ? "text" : "password"}
               fullWidth
               margin="normal"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                        onClick={() => setShowPassword((v) => !v)}
+                        edge="end"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
             />
             <Button
               type="submit"
@@ -64,7 +111,7 @@ export default function LoginPage() {
               sx={{ mt: 3 }}
               disabled={loading || !username || !password}
             >
-              {loading ? <CircularProgress size={24} /> : "Ingresar"}
+              {loading ? <CircularProgress size={24} color="inherit" /> : "Ingresar"}
             </Button>
           </form>
         </CardContent>

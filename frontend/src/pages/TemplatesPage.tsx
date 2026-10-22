@@ -1,6 +1,7 @@
+import ArticleIcon from "@mui/icons-material/Article";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import {
   Box,
   Button,
@@ -18,13 +19,17 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { errorMessage } from "../api/client";
 import { templatesApi } from "../api/endpoints";
 import type { Template } from "../api/types";
 import { PERMISSIONS } from "../api/types";
+import { EmptyState, LoadingState } from "../components/states";
+import { useNotify } from "../components/NotificationProvider";
 import { useAuthStore } from "../store/auth";
 
 interface EditTemplate {
@@ -53,8 +58,9 @@ function toEdit(t?: Template): EditTemplate {
 
 export default function TemplatesPage() {
   const qc = useQueryClient();
+  const notify = useNotify();
   const canManage = useAuthStore((s) => s.hasPermission(PERMISSIONS.MANAGE_TEMPLATES));
-  const { data } = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
+  const { data, isLoading } = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
   const [editing, setEditing] = useState<EditTemplate | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
@@ -70,15 +76,28 @@ export default function TemplatesPage() {
         legalRules: e.legalRulesText.split("\n").map((s) => s.trim()).filter(Boolean),
         ragStrict: e.ragStrict,
       }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); setEditing(null); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      notify.success("Plantilla guardada correctamente");
+      setEditing(null);
+    },
+    onError: (e) => notify.error(errorMessage(e, "No se pudo guardar la plantilla")),
   });
   const remove = useMutation({
     mutationFn: (id: string) => templatesApi.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["templates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      notify.success("Plantilla eliminada");
+    },
+    onError: (e) => notify.error(errorMessage(e, "No se pudo eliminar la plantilla")),
   });
   const upload = useMutation({
     mutationFn: ({ id, file }: { id: string; file: File }) => templatesApi.uploadFormatDoc(id, file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["templates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      notify.success("Documento modelo cargado");
+    },
+    onError: (e) => notify.error(errorMessage(e, "No se pudo cargar el documento modelo")),
   });
 
   function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
@@ -92,62 +111,81 @@ export default function TemplatesPage() {
     }
   }
 
+  const valid = editing ? editing.templateId.trim().length > 0 && editing.name.trim().length > 0 : false;
+
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
         <Typography variant="h4">Plantillas</Typography>
         {canManage && <Button variant="contained" onClick={() => setEditing(toEdit())}>Nueva plantilla</Button>}
       </Box>
 
       <input ref={fileRef} type="file" accept=".docx" hidden onChange={onFileChosen} />
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Nombre</TableCell>
-            <TableCell>Modo estricto</TableCell>
-            <TableCell>Documento modelo</TableCell>
-            <TableCell align="right"></TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data?.map((t) => (
-            <TableRow key={t.templateId} hover>
-              <TableCell onClick={() => canManage && setEditing(toEdit(t))} sx={{ cursor: canManage ? "pointer" : "default" }}>
-                {t.name}
-              </TableCell>
-              <TableCell>{t.ragStrict ? "Sí" : "No"}</TableCell>
-              <TableCell>
-                {t.hasFormatDoc
-                  ? <Chip icon={<CheckCircleIcon />} label={t.formatDocName ?? "Cargado"} color="success" size="small" />
-                  : <Chip label="Sin formato" size="small" />}
-              </TableCell>
-              <TableCell align="right">
-                {canManage && (
-                  <>
-                    <IconButton title="Subir documento modelo (.docx)"
-                      onClick={() => { setUploadTarget(t.templateId); fileRef.current?.click(); }}>
-                      <UploadFileIcon />
-                    </IconButton>
-                    <IconButton onClick={() => remove.mutate(t.templateId)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </>
-                )}
-              </TableCell>
+      {isLoading ? (
+        <LoadingState label="Cargando plantillas…" />
+      ) : !data || data.length === 0 ? (
+        <EmptyState
+          icon={<ArticleIcon sx={{ fontSize: 48 }} />}
+          title="Aún no hay plantillas"
+          description="Las plantillas definen el tipo de documento jurídico y las reglas que sigue la IA."
+          action={canManage ? <Button variant="contained" onClick={() => setEditing(toEdit())}>Nueva plantilla</Button> : undefined}
+        />
+      ) : (
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Nombre</TableCell>
+              <TableCell>Modo estricto</TableCell>
+              <TableCell>Documento modelo</TableCell>
+              <TableCell align="right"></TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {data.map((t) => (
+              <TableRow key={t.templateId} hover>
+                <TableCell onClick={() => canManage && setEditing(toEdit(t))} sx={{ cursor: canManage ? "pointer" : "default" }}>
+                  {t.name}
+                </TableCell>
+                <TableCell>{t.ragStrict ? "Sí" : "No"}</TableCell>
+                <TableCell>
+                  {t.hasFormatDoc
+                    ? <Chip icon={<CheckCircleIcon />} label={t.formatDocName ?? "Cargado"} color="success" size="small" />
+                    : <Chip label="Sin formato" size="small" />}
+                </TableCell>
+                <TableCell align="right">
+                  {canManage && (
+                    <>
+                      <Tooltip title="Subir documento modelo (.docx)">
+                        <IconButton
+                          aria-label={`Subir documento modelo para ${t.name}`}
+                          onClick={() => { setUploadTarget(t.templateId); fileRef.current?.click(); }}
+                        >
+                          <UploadFileIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Eliminar plantilla">
+                        <IconButton aria-label={`Eliminar ${t.name}`} onClick={() => remove.mutate(t.templateId)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
 
       <Dialog open={editing !== null} onClose={() => setEditing(null)} fullWidth maxWidth="md">
         <DialogTitle>{editing?.isNew ? "Nueva plantilla" : "Editar plantilla"}</DialogTitle>
         <DialogContent>
           {editing && (
             <>
-              <TextField label="ID (ej. ACCION-TUTELA-V1)" fullWidth margin="dense" disabled={!editing.isNew}
+              <TextField label="ID (ej. ACCION-TUTELA-V1)" fullWidth margin="dense" required disabled={!editing.isNew}
                 value={editing.templateId} onChange={(e) => setEditing({ ...editing, templateId: e.target.value })} />
-              <TextField label="Nombre" fullWidth margin="dense"
+              <TextField label="Nombre" fullWidth margin="dense" required
                 value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
               <TextField label="Descripción" fullWidth margin="dense"
                 value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
@@ -169,7 +207,10 @@ export default function TemplatesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditing(null)}>Cancelar</Button>
-          <Button variant="contained" onClick={() => editing && save.mutate(editing)}>Guardar</Button>
+          <Button variant="contained" disabled={!valid || save.isPending}
+            onClick={() => editing && save.mutate(editing)}>
+            {save.isPending ? "Guardando…" : "Guardar"}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

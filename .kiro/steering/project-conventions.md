@@ -80,6 +80,16 @@ Todas las tecnologías deben ser open source / gratuitas para uso comercial. No 
 - Pensado para abogados sin perfil técnico: flujo guiado (wizard), lenguaje del dominio (no jerga técnica como "metadata"/"template_id"), previsualización en vivo, mínima fricción.
 - Accesible y responsive.
 
+### Patrones UI/UX (obligatorios en pantallas nuevas)
+
+- **Notificaciones (feedback):** toda acción con efecto (mutación: guardar, eliminar, aprobar, subir) DEBE dar feedback al usuario vía el proveedor global de notificaciones. Usar el hook `useNotify()` de `components/NotificationProvider.tsx` (`notify.success` / `notify.error`) en los callbacks `onSuccess` / `onError` de cada `useMutation`. Nunca dejar una mutación silenciosa ni tragarse el error. Para el texto de error usar `errorMessage(e, fallback)` de `api/client.ts`. El `NotificationProvider` envuelve la app en `main.tsx` (dentro de `ThemeProvider`, fuera del `BrowserRouter`); muestra un snackbar a la vez y encola el resto.
+- **Estados de carga y vacío:** usar los componentes reutilizables de `components/states.tsx` — `LoadingState` mientras la query resuelve (`isLoading`) y `EmptyState` (con icono, título, descripción y CTA opcional) cuando la lista viene vacía. No mostrar tablas vacías sin explicación ni `CircularProgress` suelto.
+- **Botones de envío:** deshabilitar durante la mutación con `mutation.isPending` y mostrar texto de progreso ("Guardando…"). Validar los campos obligatorios antes de permitir el submit (`disabled={!valid || mutation.isPending}`) para evitar envíos dobles o inválidos.
+- **Accesibilidad:** todo `IconButton` lleva `aria-label` descriptivo y, cuando aporta, un `Tooltip`. Los inputs de contraseña ofrecen toggle de visibilidad. Los campos de formulario usan `autoComplete` apropiado (`username`, `current-password`, etc.).
+- **Responsive / layout:** el `AppLayout` usa `Drawer` `temporary` con botón hamburguesa en móvil (`useMediaQuery(theme.breakpoints.down("md"))`) y `permanent` en escritorio. Padding del `main` adaptativo (`p: { xs: 2, sm: 3 }`). Para grids responsivos usar `Grid2 as Grid` con `size={{ xs, sm, md }}`.
+- **Legibilidad del dominio:** no exponer identificadores técnicos crudos en la UI (p. ej. en "Mis documentos" se resuelve `templateId` → nombre de plantilla reutilizando `templatesApi.list`). Etiquetas de formulario en español legible, no el nombre del campo del backend.
+- **React Query:** el `QueryClient` global (`main.tsx`) usa `retry: 1` y `refetchOnWindowFocus: false`. Invalidar las queries afectadas en `onSuccess` de las mutaciones (`qc.invalidateQueries({ queryKey: [...] })`).
+
 ## Idioma
 
 - UI, mensajes de error y documentación de cara al usuario: español.
@@ -95,6 +105,7 @@ Todas las tecnologías deben ser open source / gratuitas para uso comercial. No 
 
 - Fases 0-4 ✅ completas y commiteadas (commit `a70fff3`, rama `feature/migracion`).
 - Fase 5 (frontend React) ✅ completa y commiteada: `npm run build` verde (fix MUI Grid2). Login, wizard, mis documentos y páginas admin.
+- **Pulido UI/UX ✅**: `NotificationProvider` global (snackbars con cola, hook `useNotify`) y componentes `LoadingState`/`EmptyState` reutilizables. Todas las mutaciones dan feedback (`onSuccess`/`onError`) con botones `isPending` + validación. `AppLayout` responsive (drawer colapsable móvil + hamburguesa + avatar). Login con toggle de contraseña. "Mis documentos" resuelve nombre de plantilla. `npm run build` verde.
 - Fase 6 (infra + semilla) ✅ completa en código y commiteada: seed Flyway `V2`, servicio `ollama-init` en compose, scripts `start.ps1`/`start.sh`.
 - **Migración de plataforma ✅**: Java 21 → **Java 25**, Spring Boot 4.0.0 → **4.1.0**, Gradle wrapper → **9.8.1**, Dockerfile → `eclipse-temurin:25`.
 - **IA Ollama → Groq ✅**: generación por Groq (`GroqClient`, `openai/gpt-oss-120b`), Ollama conmutable para on-premise, embeddings siguen en Ollama. `Flyway` arreglado (starter de Spring Boot 4).

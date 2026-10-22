@@ -31,10 +31,12 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, entitiesApi, templatesApi } from "../api/endpoints";
 import type { GeneratedDoc, Template } from "../api/types";
+import { useNotify } from "../components/NotificationProvider";
 
 const STEPS = ["Tipo de documento", "Datos del caso", "Generar"];
 
 export default function GenerateWizard() {
+  const notify = useNotify();
   const [activeStep, setActiveStep] = useState(0);
   const [selected, setSelected] = useState<Template | null>(null);
   const [caseFields, setCaseFields] = useState<Record<string, string>>({});
@@ -81,8 +83,11 @@ export default function GenerateWizard() {
         attachments,
       );
       setResult(doc);
+      notify.success("Documento generado en estado borrador");
     } catch (e) {
-      setError(errorMessage(e, "No se pudo generar el documento"));
+      const msg = errorMessage(e, "No se pudo generar el documento");
+      setError(msg);
+      notify.error(msg);
     } finally {
       setGenerating(false);
     }

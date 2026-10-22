@@ -1,10 +1,10 @@
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
 import {
-  Alert,
   Box,
   Button,
   Chip,
-  CircularProgress,
   Table,
   TableBody,
   TableCell,
@@ -13,8 +13,12 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { documentsApi } from "../api/endpoints";
+import { useMemo } from "react";
+import { errorMessage } from "../api/client";
+import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
+import { EmptyState, LoadingState } from "../components/states";
+import { useNotify } from "../components/NotificationProvider";
 import { useAuthStore } from "../store/auth";
 
 const STATUS_COLOR: Record<DocumentStatus, "warning" | "info" | "success" | "default"> = {
@@ -33,29 +37,41 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
 
 export default function MyDocumentsPage() {
   const qc = useQueryClient();
+  const notify = useNotify();
   const role = useAuthStore((s) => s.role);
   const canReview = role === "abogado" || role === "admin";
 
   const { data, isLoading } = useQuery({ queryKey: ["myDocs"], queryFn: documentsApi.mine });
+  const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
+
+  const templateName = useMemo(() => {
+    const map = new Map<string, string>();
+    (templatesQuery.data ?? []).forEach((t) => map.set(t.templateId, t.name));
+    return (id: string) => map.get(id) ?? id;
+  }, [templatesQuery.data]);
 
   const review = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => documentsApi.review(id, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["myDocs"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["myDocs"] });
+      notify.success("Documento aprobado");
+    },
+    onError: (e) => notify.error(errorMessage(e, "No se pudo actualizar el estado")),
   });
-
-  if (isLoading) {
-    return <CircularProgress />;
-  }
 
   return (
     <Box>
       <Typography variant="h4" gutterBottom>Mis documentos</Typography>
 
-      {data?.length === 0 && (
-        <Alert severity="info">Aún no ha generado documentos.</Alert>
-      )}
-
-      {data && data.length > 0 && (
+      {isLoading ? (
+        <LoadingState label="Cargando documentos…" />
+      ) : !data || data.length === 0 ? (
+        <EmptyState
+          icon={<DescriptionIcon sx={{ fontSize: 48 }} />}
+          title="Aún no ha generado documentos"
+          description="Los documentos que genere aparecerán aquí para descargarlos y revisarlos."
+        />
+      ) : (
         <Table>
           <TableHead>
             <TableRow>
@@ -67,8 +83,8 @@ export default function MyDocumentsPage() {
           </TableHead>
           <TableBody>
             {data.map((d) => (
-              <TableRow key={d.transactionId}>
-                <TableCell>{d.templateId}</TableCell>
+              <TableRow key={d.transactionId} hover>
+                <TableCell>{templateName(d.templateId)}</TableCell>
                 <TableCell>{new Date(d.createdAt).toLocaleString("es-CO")}</TableCell>
                 <TableCell>
                   <Chip label={STATUS_LABEL[d.status]} color={STATUS_COLOR[d.status]} size="small" />
@@ -85,6 +101,8 @@ export default function MyDocumentsPage() {
                     <Button
                       size="small"
                       color="success"
+                      startIcon={<CheckCircleIcon />}
+                      disabled={review.isPending}
                       onClick={() => review.mutate({ id: d.transactionId, status: "APPROVED" })}
                     >
                       Aprobar
