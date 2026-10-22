@@ -179,3 +179,39 @@ el corte por bueno, ejecutar esta lista en un host con Docker. Marca cada punto.
 ### Backups
 - [ ] `.\backup.ps1` genera un `.dump` en `backups/`.
 - [ ] `.\restore.ps1` sobre una BD modificada restaura el estado del dump.
+
+---
+
+## Carga de minutas modelo y corpus RAG (formato y lenguaje de la firma)
+
+Para que los documentos generados salgan idénticos a las minutas de la firma
+(membrete, fuente Cambria 14 justificada, pie de dos oficinas y lenguaje jurídico
+real), cada plantilla debe tener asociados:
+
+1. Un **.docx modelo** (preserva el formato byte a byte: membrete, estilos, pie).
+2. Un **corpus RAG** con las minutas de esa tipología (el texto jurídico queda
+   disponible para la generación en modo estricto, de modo que la IA reproduzca
+   el lenguaje de la firma en vez de parafrasearlo).
+
+El script `seed-rag` hace ambas cargas por cada plantilla. Requiere el stack
+arriba (backend + Ollama listos, porque el RAG genera embeddings con Ollama) y un
+usuario con permiso `manage_templates` (rol admin o abogado).
+
+```powershell
+# Windows
+.\seed-rag.ps1 -MinutasDir "C:\ruta\a\MINUTAS DENNIS" -Username admin -Password "Admin12345*"
+```
+```bash
+# Linux / macOS (requiere curl y jq)
+./seed-rag.sh "/ruta/a/MINUTAS DENNIS" http://localhost:8080 admin "Admin12345*"
+```
+
+El script sube, por cada una de las 7 plantillas de la firma, su minuta
+representativa como `.docx` modelo y todas sus minutas como corpus RAG. Es
+idempotente: volver a ejecutarlo reindexa sin duplicar.
+
+> Nota: solo procesa archivos `.docx`. Las minutas en formato `.doc` (binario
+> antiguo) deben convertirse antes a `.docx` (Apache POI no las lee con fidelidad).
+> Verificación rápida tras la carga: en la UI de Plantillas, cada plantilla debe
+> mostrar su documento modelo y sus fuentes RAG; genere un documento de prueba y
+> compárelo contra la minuta real (membrete, fuente, pie y estructura).
