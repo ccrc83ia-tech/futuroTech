@@ -1,8 +1,10 @@
 package com.futurotech.legal.infrastructure.adapter.in.web;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,9 +33,6 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayInputStream;
-import java.time.Instant;
-
 import com.futurotech.legal.application.service.CompanyService;
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.exception.ResourceNotFoundException;
@@ -46,9 +45,10 @@ import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
 import com.futurotech.legal.domain.port.out.EntityRepositoryPort;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
+import com.futurotech.legal.domain.port.out.UserRepositoryPort;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.DocketRequest;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.StatsResponse;
 import com.futurotech.legal.infrastructure.adapter.out.export.DocxWatermarkStamper;
@@ -71,12 +71,13 @@ public class DocumentController {
     private final PdfExporter pdfExporter;
     private final DocxWatermarkStamper watermarkStamper;
     private final EntityRepositoryPort entityRepo;
+    private final UserRepositoryPort userRepo;
     private final Path outputDir;
 
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
                               CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
                               PdfExporter pdfExporter, DocxWatermarkStamper watermarkStamper,
-                              EntityRepositoryPort entityRepo,
+                              EntityRepositoryPort entityRepo, UserRepositoryPort userRepo,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
         this.generateUseCase = generateUseCase;
         this.auditTrail = auditTrail;
@@ -85,6 +86,7 @@ public class DocumentController {
         this.pdfExporter = pdfExporter;
         this.watermarkStamper = watermarkStamper;
         this.entityRepo = entityRepo;
+        this.userRepo = userRepo;
         this.outputDir = Path.of(outputDir);
     }
 
@@ -298,10 +300,21 @@ public class DocumentController {
         String entityName = d.entityId() != null
                 ? entityRepo.findById(d.entityId()).map(e -> e.name()).orElse(d.entityId())
                 : null;
+        // Resuelve username → nombre completo para el autor y el revisor
+        String authorName = d.authorUserId() != null
+                ? userRepo.findByUsername(d.authorUserId())
+                          .map(u -> u.fullName())
+                          .orElse(d.authorUserId())
+                : null;
+        String reviewerName = d.reviewedBy() != null
+                ? userRepo.findByUsername(d.reviewedBy())
+                          .map(u -> u.fullName())
+                          .orElse(d.reviewedBy())
+                : null;
         return new GeneratedDocResponse(
                 d.id().toString(), d.templateId(), d.status().name(), d.fileName(),
                 "/api/v1/documents/" + d.id() + "/download", d.createdAt(),
-                clientName, d.entityId(), entityName, d.authorUserId(),
-                d.reviewedBy(), d.reviewedAt(), d.deadline(), d.internalDocket());
+                clientName, d.entityId(), entityName, authorName,
+                reviewerName, d.reviewedAt(), d.deadline(), d.internalDocket());
     }
 }
