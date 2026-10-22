@@ -12,6 +12,7 @@ import {
   Card,
   CardActionArea,
   CardContent,
+  Chip,
   CircularProgress,
   Grid2 as Grid,
   IconButton,
@@ -33,7 +34,9 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, entitiesApi, templatesApi } from "../api/endpoints";
 import type { GeneratedDoc, Template } from "../api/types";
+import DocumentEditor from "../components/DocumentEditor";
 import { useNotify } from "../components/NotificationProvider";
+import { htmlToPlainText, markdownToHtml } from "../utils/markdownToHtml";
 
 const STEPS = ["Tipo de documento", "Datos del caso", "Generar y revisar"];
 
@@ -48,9 +51,9 @@ export default function GenerateWizard() {
   const [result, setResult] = useState<GeneratedDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Editor de texto del documento generado
-  const [docText, setDocText] = useState<string>("");
-  const [originalText, setOriginalText] = useState<string>("");
+  // Editor de texto del documento generado (almacenamos HTML para Tiptap)
+  const [docHtml, setDocHtml] = useState<string>("");
+  const [originalHtml, setOriginalHtml] = useState<string>("");
   const [loadingText, setLoadingText] = useState(false);
 
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
@@ -74,8 +77,8 @@ export default function GenerateWizard() {
     setGenerating(true);
     setError(null);
     setResult(null);
-    setDocText("");
-    setOriginalText("");
+    setDocHtml("");
+    setOriginalHtml("");
     try {
       const doc = await documentsApi.generate(
         { templateId: selected.templateId, entityId: entityId || undefined, caseFields, ragStrict: selected.ragStrict },
@@ -87,8 +90,9 @@ export default function GenerateWizard() {
       setLoadingText(true);
       try {
         const { text } = await documentsApi.text(doc.transactionId);
-        setDocText(text);
-        setOriginalText(text);
+        const html = markdownToHtml(text);
+        setDocHtml(html);
+        setOriginalHtml(html);
       } catch {
         // Si falla la extracción de texto el usuario igual puede descargar
       } finally {
@@ -105,7 +109,8 @@ export default function GenerateWizard() {
 
   /** Descarga el texto editado como .txt para que el usuario lo use como base. */
   function downloadEditedText() {
-    const blob = new Blob([docText], { type: "text/plain;charset=utf-8" });
+    const plain = htmlToPlainText(docHtml);
+    const blob = new Blob([plain], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -122,11 +127,11 @@ export default function GenerateWizard() {
     setAttachments([]);
     setResult(null);
     setError(null);
-    setDocText("");
-    setOriginalText("");
+    setDocHtml("");
+    setOriginalHtml("");
   }
 
-  const isEdited = docText !== originalText;
+  const isEdited = docHtml !== originalHtml;
 
   return (
     <Box sx={{ maxWidth: 900, mx: "auto" }}>
@@ -286,17 +291,22 @@ export default function GenerateWizard() {
                 fuente oficial.
               </Alert>
 
-              {/* Editor de texto */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                <Typography variant="subtitle1" fontWeight="medium">
-                  Previsualizar y editar
-                </Typography>
+              {/* Editor de documento */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Typography variant="subtitle1" fontWeight="medium">
+                    Vista previa del documento
+                  </Typography>
+                  {isEdited && (
+                    <Chip label="Modificado" size="small" color="warning" variant="outlined" />
+                  )}
+                </Box>
                 <Tooltip title="Restaurar el texto original generado por la IA">
                   <span>
                     <Button
                       size="small"
                       startIcon={<RestoreIcon />}
-                      onClick={() => setDocText(originalText)}
+                      onClick={() => setDocHtml(originalHtml)}
                       disabled={!isEdited}
                     >
                       Restaurar original
@@ -306,32 +316,22 @@ export default function GenerateWizard() {
               </Box>
 
               {loadingText ? (
-                <Box sx={{ py: 2 }}>
-                  <LinearProgress />
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    Cargando texto del documento…
+                <Box sx={{ py: 4, textAlign: "center" }}>
+                  <LinearProgress sx={{ mb: 1.5 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Cargando documento…
                   </Typography>
                 </Box>
               ) : (
-                <TextField
-                  multiline
-                  fullWidth
-                  minRows={16}
-                  maxRows={32}
-                  value={docText}
-                  onChange={(e) => setDocText(e.target.value)}
-                  placeholder="El texto del documento aparecerá aquí para que pueda revisarlo y editarlo."
-                  helperText={
-                    isEdited
-                      ? "Texto modificado. Use 'Descargar texto editado' para obtener su versión."
-                      : "Puede editar este texto antes de descargar. Use **texto** para negrilla, *texto* para cursiva."
-                  }
-                  sx={{ fontFamily: "monospace", "& textarea": { fontFamily: "inherit", fontSize: 13 } }}
+                <DocumentEditor
+                  content={docHtml}
+                  onChange={setDocHtml}
+                  placeholder="El documento aparecerá aquí una vez generado."
                 />
               )}
 
               {/* Botones de descarga */}
-              <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Box sx={{ mt: 2.5, display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
                 <Button
                   variant="contained"
                   startIcon={<DownloadIcon />}
@@ -346,15 +346,15 @@ export default function GenerateWizard() {
                 >
                   Descargar PDF
                 </Button>
-                {docText && (
-                  <Tooltip title={isEdited ? "Descarga tu versión editada como .txt" : "Descarga el texto como .txt"}>
+                {isEdited && (
+                  <Tooltip title="Descarga tu versión editada en el editor como .txt">
                     <Button
                       variant="outlined"
+                      color="warning"
                       startIcon={<DownloadIcon />}
                       onClick={downloadEditedText}
-                      color={isEdited ? "warning" : "inherit"}
                     >
-                      {isEdited ? "Descargar texto editado" : "Descargar texto"}
+                      Descargar texto editado
                     </Button>
                   </Tooltip>
                 )}
