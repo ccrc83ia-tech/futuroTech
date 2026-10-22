@@ -1,7 +1,24 @@
 package com.futurotech.legal.application.service;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.exception.TenantNotFoundException;
+import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
 import com.futurotech.legal.domain.model.LegalContext;
@@ -14,20 +31,6 @@ import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
 import com.futurotech.legal.domain.port.out.KnowledgeBasePort;
 import com.futurotech.legal.domain.port.out.TemplateRepositoryPort;
 import com.futurotech.legal.domain.port.out.TenantRepositoryPort;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 /**
  * Orquestador de generación: resuelve firma y plantilla, compone el prompt con
@@ -167,11 +170,45 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
                     .append("con tu conocimiento jurídico):\n\n").append(ragContext);
         }
 
+        // Documentos aportados del caso (hechos). Son del caso concreto, no fuentes
+        // normativas, por lo que se inyectan SIEMPRE, al margen del modo estricto.
+        String attachmentsBlock = buildAttachmentsBlock(cmd.caseAttachments());
+        if (!attachmentsBlock.isEmpty()) {
+            systemPrompt.append("\n\n=== DOCUMENTOS APORTADOS DEL CASO (HECHOS) ===\n")
+                    .append("El usuario adjuntó los siguientes documentos del caso concreto (p. ej. el ")
+                    .append("derecho de petición negado que motiva una tutela). Úsalos como HECHOS para dar ")
+                    .append("mayor solidez al documento: extrae fechas, entidades, pretensiones y respuestas, ")
+                    .append("y referéncialos con precisión. Son hechos aportados por la parte, NO fuentes ")
+                    .append("normativas: no los uses para citar leyes, decretos ni jurisprudencia.\n\n")
+                    .append(attachmentsBlock)
+                    .append("\n=== FIN DE DOCUMENTOS APORTADOS ===");
+            log.info("Adjuntos del caso: {} documento(s) inyectado(s) en el prompt",
+                    cmd.caseAttachments().size());
+        }
+
         Map<String, String> clean = cleanMetadata(cmd.caseFields());
         String userPrompt = "Genera el documento con plantilla '" + template.templateId()
                 + "' usando estos datos del caso:\n" + clean;
 
         return LegalContext.of(systemPrompt.toString(), userPrompt, clean);
+    }
+
+    /** Concatena el texto de los adjuntos del caso, cada uno con su nombre como encabezado. */
+    private static String buildAttachmentsBlock(List<CaseAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (CaseAttachment att : attachments) {
+            if (att != null && att.hasText()) {
+                if (sb.length() > 0) {
+                    sb.append("\n\n---\n\n");
+                }
+                sb.append("[DOCUMENTO: ").append(att.fileName()).append("]\n")
+                        .append(att.extractedText());
+            }
+        }
+        return sb.toString();
     }
 
     /** Extrae títulos de sección y estructura del .docx modelo para guiar a la IA. */

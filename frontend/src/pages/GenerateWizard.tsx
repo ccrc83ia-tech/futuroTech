@@ -1,5 +1,8 @@
+import AttachFileIcon from "@mui/icons-material/AttachFile";
+import DeleteIcon from "@mui/icons-material/Delete";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import {
   Alert,
   Autocomplete,
@@ -10,7 +13,12 @@ import {
   CardContent,
   CircularProgress,
   Grid2 as Grid,
+  IconButton,
   LinearProgress,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
   Paper,
   Step,
   StepLabel,
@@ -31,6 +39,7 @@ export default function GenerateWizard() {
   const [selected, setSelected] = useState<Template | null>(null);
   const [caseFields, setCaseFields] = useState<Record<string, string>>({});
   const [entityId, setEntityId] = useState<string>("");
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<GeneratedDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,12 +71,15 @@ export default function GenerateWizard() {
     setError(null);
     setResult(null);
     try {
-      const doc = await documentsApi.generate({
-        templateId: selected.templateId,
-        entityId: entityId || undefined,
-        caseFields,
-        ragStrict: selected.ragStrict,
-      });
+      const doc = await documentsApi.generate(
+        {
+          templateId: selected.templateId,
+          entityId: entityId || undefined,
+          caseFields,
+          ragStrict: selected.ragStrict,
+        },
+        attachments,
+      );
       setResult(doc);
     } catch (e) {
       setError(errorMessage(e, "No se pudo generar el documento"));
@@ -81,6 +93,7 @@ export default function GenerateWizard() {
     setSelected(null);
     setCaseFields({});
     setEntityId("");
+    setAttachments([]);
     setResult(null);
     setError(null);
   }
@@ -148,6 +161,61 @@ export default function GenerateWizard() {
               onChange={(e) => setCaseFields((prev) => ({ ...prev, [field]: e.target.value }))}
             />
           ))}
+
+          {/* Documentos del caso (opcional): la IA los usará como hechos */}
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              <AttachFileIcon fontSize="small" sx={{ verticalAlign: "middle", mr: 0.5 }} />
+              Documentos del caso (opcional)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Adjunte documentos de respaldo (p. ej. el derecho de petición negado) para dar más
+              solidez al documento. La IA los analizará como hechos. Formatos: PDF, DOCX, TXT.
+            </Typography>
+            <Button component="label" variant="outlined" startIcon={<UploadFileIcon />}>
+              Adjuntar archivos
+              <input
+                type="file"
+                hidden
+                multiple
+                accept=".pdf,.docx,.txt"
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  setAttachments((prev) => [...prev, ...picked]);
+                  e.target.value = "";
+                }}
+              />
+            </Button>
+            {attachments.length > 0 && (
+              <List dense>
+                {attachments.map((file, idx) => (
+                  <ListItem
+                    key={`${file.name}-${idx}`}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        aria-label={`Quitar ${file.name}`}
+                        onClick={() =>
+                          setAttachments((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>
+                      <DescriptionIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={file.name}
+                      secondary={`${(file.size / 1024).toFixed(0)} KB`}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Box>
+
           <Box sx={{ mt: 2, display: "flex", gap: 1 }}>
             <Button onClick={() => setActiveStep(0)}>Atrás</Button>
             <Button variant="contained" disabled={!canContinue} onClick={() => setActiveStep(2)}>
@@ -165,6 +233,11 @@ export default function GenerateWizard() {
               <Typography sx={{ mb: 2 }}>
                 Todo listo para generar <strong>{selected.name}</strong>.
               </Typography>
+              {attachments.length > 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Se analizarán {attachments.length} documento(s) adjunto(s) como hechos del caso.
+                </Typography>
+              )}
               <Button variant="contained" size="large" onClick={generate}>
                 Generar documento
               </Button>
@@ -193,7 +266,7 @@ export default function GenerateWizard() {
               <Button
                 variant="contained"
                 startIcon={<DownloadIcon />}
-                href={documentsApi.downloadUrl(result.transactionId)}
+                onClick={() => documentsApi.download(result.transactionId, result.fileName)}
               >
                 Descargar documento (.docx)
               </Button>

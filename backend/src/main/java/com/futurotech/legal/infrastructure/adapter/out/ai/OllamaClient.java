@@ -1,25 +1,33 @@
 package com.futurotech.legal.infrastructure.adapter.out.ai;
 
+import java.time.Duration;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.model.LegalContext;
 import com.futurotech.legal.domain.port.out.AIServicePort;
+
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
-import java.time.Duration;
-import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 
 /**
  * Adaptador de IA sobre Ollama (local). Llama a POST /api/generate con stream=false.
  * Protegido por circuit breaker + retry (Resilience4j). Intercambiable vía AIServicePort.
+ *
+ * <p>Alternativa on-premise a {@link GroqClient}. Solo se activa como proveedor de
+ * generación cuando {@code ai.provider=ollama}.
  */
 @Component
+@ConditionalOnProperty(name = "ai.provider", havingValue = "ollama")
 public class OllamaClient implements AIServicePort {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaClient.class);

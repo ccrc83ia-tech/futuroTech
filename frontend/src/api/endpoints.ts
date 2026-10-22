@@ -58,10 +58,41 @@ export const companyApi = {
 
 // --- Documents ---
 export const documentsApi = {
-  generate: (req: GenerateRequest) =>
-    api.post<GeneratedDoc>("/documents/generate", req).then((r) => r.data),
+  /**
+   * Genera un documento. Envía multipart/form-data: la parte "request" es el
+   * JSON con los datos del caso y "attachments" son documentos del caso
+   * (PDF/DOCX/TXT) opcionales que la IA usará como hechos.
+   */
+  generate: (req: GenerateRequest, attachments?: File[]) => {
+    const form = new FormData();
+    form.append(
+      "request",
+      new Blob([JSON.stringify(req)], { type: "application/json" }),
+    );
+    (attachments ?? []).forEach((file) => form.append("attachments", file));
+    return api.post<GeneratedDoc>("/documents/generate", form).then((r) => r.data);
+  },
   mine: () => api.get<GeneratedDoc[]>("/documents/mine").then((r) => r.data),
   review: (id: string, status: string) =>
     api.put<GeneratedDoc>(`/documents/${id}/review`, { status }).then((r) => r.data),
-  downloadUrl: (id: string) => `/api/v1/documents/${id}/download`,
+  /**
+   * Descarga el .docx a través de Axios para que el interceptor añada el token
+   * JWT (una navegación directa por <a href> no lo adjuntaría y daría 403).
+   * Recibe el archivo como blob y dispara la descarga en el navegador.
+   */
+  download: async (id: string, fileName?: string) => {
+    const resp = await api.get(`/documents/${id}/download`, { responseType: "blob" });
+    const disposition = resp.headers["content-disposition"] as string | undefined;
+    const match = disposition?.match(/filename="?([^"]+)"?/);
+    const name = fileName ?? match?.[1] ?? `documento-${id}.docx`;
+
+    const url = window.URL.createObjectURL(resp.data as Blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };

@@ -1,6 +1,6 @@
 plugins {
     java
-    id("org.springframework.boot") version "4.0.0"
+    id("org.springframework.boot") version "4.1.0"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -9,7 +9,7 @@ version = "0.1.0"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -37,7 +37,9 @@ dependencies {
 
     // --- Base de datos ---
     runtimeOnly("org.postgresql:postgresql")
-    implementation("org.flywaydb:flyway-core")
+    // Spring Boot 4 es modular: la autoconfiguración de Flyway ya no viene con
+    // flyway-core; requiere el starter dedicado para ejecutar las migraciones.
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
     // pgvector <-> Hibernate (soporte de tipo vector)
     implementation("com.pgvector:pgvector:0.1.6")

@@ -1,18 +1,21 @@
 package com.futurotech.legal.infrastructure.config;
 
-import com.futurotech.legal.domain.port.out.AIServicePort;
 import java.time.Duration;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import com.futurotech.legal.domain.port.out.AIServicePort;
+
 /**
- * Health check profundo de la IA: verifica conectividad con Ollama y expone el
- * estado del circuit breaker. Se integra en /actuator/health.
+ * Health check profundo de la IA: verifica conectividad con Ollama (usado para
+ * los embeddings del RAG) y expone el estado del circuit breaker del proveedor
+ * de generación activo (Groq u Ollama). Se integra en /actuator/health.
  */
-@Component("ollama")
+@Component("ai")
 public class OllamaHealthIndicator implements HealthIndicator {
 
     private final WebClient webClient;

@@ -77,7 +77,7 @@ export default function MyDocumentsPage() {
                   <Button
                     size="small"
                     startIcon={<DownloadIcon />}
-                    href={documentsApi.downloadUrl(d.transactionId)}
+                    onClick={() => documentsApi.download(d.transactionId, d.fileName)}
                   >
                     Descargar
                   </Button>

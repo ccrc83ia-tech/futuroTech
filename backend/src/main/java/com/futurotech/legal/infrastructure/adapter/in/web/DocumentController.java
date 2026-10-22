@@ -1,22 +1,14 @@
 package com.futurotech.legal.infrastructure.adapter.in.web;
 
-import com.futurotech.legal.application.service.CompanyService;
-import com.futurotech.legal.domain.exception.DocumentGenerationException;
-import com.futurotech.legal.domain.model.DocumentStatus;
-import com.futurotech.legal.domain.model.GeneratedDocument;
-import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
-import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
-import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
-import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
-import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -31,7 +23,24 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.futurotech.legal.application.service.CompanyService;
+import com.futurotech.legal.domain.exception.DocumentGenerationException;
+import com.futurotech.legal.domain.model.CaseAttachment;
+import com.futurotech.legal.domain.model.DocumentStatus;
+import com.futurotech.legal.domain.model.GeneratedDocument;
+import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
+import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
+import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
+import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
+
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/documents")
@@ -40,29 +49,59 @@ public class DocumentController {
     private final GenerateDocumentUseCase generateUseCase;
     private final GeneratedDocumentPort auditTrail;
     private final CompanyService companyService;
+    private final CaseDocumentExtractor caseDocumentExtractor;
     private final Path outputDir;
 
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
-                              CompanyService companyService,
+                              CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
         this.generateUseCase = generateUseCase;
         this.auditTrail = auditTrail;
         this.companyService = companyService;
+        this.caseDocumentExtractor = caseDocumentExtractor;
         this.outputDir = Path.of(outputDir);
     }
 
-    @PostMapping("/generate")
+    /**
+     * Genera un documento. Acepta multipart/form-data: la parte {@code request}
+     * es el JSON con los datos del caso, y la parte opcional {@code attachments}
+     * son documentos del caso (PDF/DOCX/TXT) cuyo texto se inyecta como hechos.
+     * Ejemplo: adjuntar el derecho de petición negado al crear una tutela.
+     */
+    @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAuthority('PERM_generate_document')")
-    public GeneratedDocResponse generate(@Valid @RequestBody GenerateRequest req, Authentication auth) {
+    public GeneratedDocResponse generate(
+            @Valid @RequestPart("request") GenerateRequest req,
+            @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments,
+            Authentication auth) {
         String tenantId = companyService.getActive()
                 .orElseThrow(() -> new DocumentGenerationException("No hay una firma configurada"))
                 .tenantId();
         boolean ragStrict = req.ragStrict() == null || req.ragStrict();
 
+        // Extrae el texto de los adjuntos del caso (si los hay).
+        List<CaseAttachment> caseAttachments = new ArrayList<>();
+        if (attachments != null) {
+            for (MultipartFile file : attachments) {
+                if (file != null && !file.isEmpty()) {
+                    caseAttachments.add(caseDocumentExtractor.extract(file));
+                }
+            }
+        }
+
+        // Trazabilidad: deja constancia de los nombres de adjuntos en la auditoría.
+        // La clave con prefijo "_" se excluye del prompt pero se persiste en case_fields.
+        Map<String, String> caseFields = new LinkedHashMap<>(
+                req.caseFields() == null ? Map.of() : req.caseFields());
+        if (!caseAttachments.isEmpty()) {
+            String names = caseAttachments.stream().map(CaseAttachment::fileName)
+                    .reduce((a, b) -> a + ", " + b).orElse("");
+            caseFields.put("_adjuntos", names);
+        }
+
         var command = new GenerateCommand(
                 req.templateId(), tenantId, auth.getName(), req.entityId(),
-                req.caseFields() == null ? Map.of() : req.caseFields(),
-                req.selectedRules(), ragStrict);
+                caseFields, req.selectedRules(), ragStrict, caseAttachments);
 
         GeneratedDocument doc = generateUseCase.generate(command);
         return toResponse(doc);

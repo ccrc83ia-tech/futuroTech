@@ -1,6 +1,11 @@
 spring:
   application:
     name: futurotech-legal
+  servlet:
+    multipart:
+      # Límite por archivo y por petición para los adjuntos del caso en /generate.
+      max-file-size: ${MAX_FILE_SIZE:20MB}
+      max-request-size: ${MAX_REQUEST_SIZE:60MB}
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/legal_engine}
     username: ${DB_USER:legal}
@@ -19,7 +24,17 @@ spring:
 server:
   port: ${API_PORT:8080}
 
-# --- IA (Ollama local) ---
+# --- IA: proveedor de generación ---
+# "groq" (nube, por defecto) u "ollama" (local/on-premise).
+ai:
+  provider: ${AI_PROVIDER:groq}
+  groq:
+    base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
+    api-key: ${GROQ_API_KEY:}
+    model: ${GROQ_MODEL:openai/gpt-oss-120b}
+    max-tokens: ${GROQ_MAX_TOKENS:8000}
+    timeout-seconds: ${GROQ_TIMEOUT:120}
+# --- Ollama (embeddings para RAG; y generación si ai.provider=ollama) ---
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   generation-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
@@ -43,10 +58,15 @@ security:
     ttl-seconds: ${JWT_TTL:28800}     # 8 horas
     refresh-ttl-seconds: ${JWT_REFRESH_TTL:604800}
 
-# --- Resilience4j (circuit breaker + retry para Ollama) ---
+# --- Resilience4j (circuit breaker + retry para los proveedores de IA) ---
 resilience4j:
   circuitbreaker:
     instances:
+      groq:
+        failure-rate-threshold: 50
+        sliding-window-size: 10
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
       ollama:
         failure-rate-threshold: 50
         sliding-window-size: 10
@@ -54,6 +74,10 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3
   retry:
     instances:
+      groq:
+        max-attempts: 3
+        wait-duration: 2s
+        exponential-backoff-multiplier: 2
       ollama:
         max-attempts: 3
         wait-duration: 2s
