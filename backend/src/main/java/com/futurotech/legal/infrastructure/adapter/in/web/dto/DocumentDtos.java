@@ -50,6 +50,12 @@ public final class DocumentDtos {
     ) {
     }
 
+    /** Edición del contenido de un borrador: texto con marcado Markdown básico. */
+    public record ContentRequest(
+            @NotBlank String text
+    ) {
+    }
+
     public record StatsResponse(
             long totalMonth,
             long pendingReview,

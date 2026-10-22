@@ -91,6 +91,9 @@ export const documentsApi = {
   stats: () => api.get<DocumentStats>("/documents/stats").then((r) => r.data),
   text: (id: string) =>
     api.get<{ text: string; status: string }>(`/documents/${id}/text`).then((r) => r.data),
+  /** Edita el contenido de un borrador (solo DRAFT). Regenera el .docx en disco. */
+  updateContent: (id: string, text: string) =>
+    api.put<GeneratedDoc>(`/documents/${id}/content`, { text }).then((r) => r.data),
   updateDocket: (id: string, internalDocket: string) =>
     api.put<GeneratedDoc>(`/documents/${id}/docket`, { internalDocket }).then((r) => r.data),
   review: (id: string, status: string) =>

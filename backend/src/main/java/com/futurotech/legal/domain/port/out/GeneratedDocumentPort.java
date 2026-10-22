@@ -22,4 +22,7 @@ public interface GeneratedDocumentPort {
 
     /** Actualiza el radicado interno de un documento. */
     void updateDocket(UUID id, String internalDocket);
+
+    /** Actualiza el hash del archivo tras editar el contenido de un borrador. */
+    void updateFileHash(UUID id, String fileHash);
 }

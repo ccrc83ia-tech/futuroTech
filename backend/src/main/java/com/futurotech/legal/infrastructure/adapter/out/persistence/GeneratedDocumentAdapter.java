@@ -72,6 +72,15 @@ public class GeneratedDocumentAdapter implements GeneratedDocumentPort {
         jpa.save(e);
     }
 
+    @Override
+    @Transactional
+    public void updateFileHash(UUID id, String fileHash) {
+        GeneratedDocumentEntity e = jpa.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado: " + id));
+        e.setFileHash(fileHash);
+        jpa.save(e);
+    }
+
     private GeneratedDocument toDomain(GeneratedDocumentEntity e) {
         return new GeneratedDocument(
                 e.getId(), e.getTemplateId(), e.getTemplateVersion(), e.getAuthorUserId(), e.getEntityId(),

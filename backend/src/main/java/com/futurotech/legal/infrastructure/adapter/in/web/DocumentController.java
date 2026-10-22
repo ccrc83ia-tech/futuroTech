@@ -2,8 +2,10 @@ package com.futurotech.legal.infrastructure.adapter.in.web;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,17 +42,21 @@ import com.futurotech.legal.domain.model.Branding;
 import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
+import com.futurotech.legal.domain.model.Template;
 import com.futurotech.legal.domain.model.TenantConfig;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase.GenerateCommand;
 import com.futurotech.legal.domain.port.out.EntityRepositoryPort;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
+import com.futurotech.legal.domain.port.out.TemplateRepositoryPort;
 import com.futurotech.legal.domain.port.out.UserRepositoryPort;
+import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ContentRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.DocketRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GenerateRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.GeneratedDocResponse;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.ReviewRequest;
 import com.futurotech.legal.infrastructure.adapter.in.web.dto.DocumentDtos.StatsResponse;
+import com.futurotech.legal.infrastructure.adapter.out.export.DocxExporter;
 import com.futurotech.legal.infrastructure.adapter.out.export.DocxWatermarkStamper;
 import com.futurotech.legal.infrastructure.adapter.out.export.PdfExporter;
 import com.futurotech.legal.infrastructure.extract.CaseDocumentExtractor;
@@ -72,12 +78,15 @@ public class DocumentController {
     private final DocxWatermarkStamper watermarkStamper;
     private final EntityRepositoryPort entityRepo;
     private final UserRepositoryPort userRepo;
+    private final TemplateRepositoryPort templateRepo;
+    private final DocxExporter docxExporter;
     private final Path outputDir;
 
     public DocumentController(GenerateDocumentUseCase generateUseCase, GeneratedDocumentPort auditTrail,
                               CompanyService companyService, CaseDocumentExtractor caseDocumentExtractor,
                               PdfExporter pdfExporter, DocxWatermarkStamper watermarkStamper,
                               EntityRepositoryPort entityRepo, UserRepositoryPort userRepo,
+                              TemplateRepositoryPort templateRepo, DocxExporter docxExporter,
                               @Value("${docs.output-dir:generated_docs}") String outputDir) {
         this.generateUseCase = generateUseCase;
         this.auditTrail = auditTrail;
@@ -87,6 +96,8 @@ public class DocumentController {
         this.watermarkStamper = watermarkStamper;
         this.entityRepo = entityRepo;
         this.userRepo = userRepo;
+        this.templateRepo = templateRepo;
+        this.docxExporter = docxExporter;
         this.outputDir = Path.of(outputDir);
     }
 
@@ -250,6 +261,53 @@ public class DocumentController {
                 sb.append("\n");
             }
             return sb.toString().stripTrailing();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * Edita el contenido de un borrador. Recibe el texto con marcado Markdown
+     * básico (el mismo formato que devuelve {@code /text}), regenera el .docx en
+     * disco preservando el formato de la plantilla modelo (si existe) y actualiza
+     * el hash del archivo. Solo se permite mientras el documento esté en DRAFT:
+     * una vez revisado/aprobado, el contenido queda congelado para garantizar la
+     * trazabilidad jurídica.
+     */
+    @PutMapping("/{id}/content")
+    @PreAuthorize("hasAuthority('PERM_generate_document')")
+    public GeneratedDocResponse updateContent(@PathVariable UUID id,
+                                              @Valid @RequestBody ContentRequest req) throws IOException {
+        GeneratedDocument doc = auditTrail.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado"));
+        if (doc.status() != DocumentStatus.DRAFT) {
+            throw new DocumentGenerationException(
+                    "Solo se pueden editar documentos en estado BORRADOR. "
+                    + "Este documento ya fue revisado y su contenido está congelado.");
+        }
+
+        byte[] formatDocBytes = templateRepo.findById(doc.templateId())
+                .map(Template::formatDocBytes).orElse(null);
+        Branding branding = companyService.getActive().map(TenantConfig::branding).orElse(null);
+
+        byte[] docx = docxExporter.build(req.text(), branding, formatDocBytes);
+        Files.createDirectories(outputDir);
+        Files.write(outputDir.resolve(doc.fileName()), docx);
+
+        auditTrail.updateFileHash(id, sha256(req.text()));
+        return toResponse(auditTrail.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Documento no encontrado")));
+    }
+
+    private static String sha256(String text) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(text.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
         } catch (Exception e) {
             return "";
         }

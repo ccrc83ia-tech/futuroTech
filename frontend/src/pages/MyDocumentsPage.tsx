@@ -3,10 +3,13 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
 import EditIcon from "@mui/icons-material/Edit";
 import SearchIcon from "@mui/icons-material/Search";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import {
+  Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -52,6 +55,11 @@ export default function MyDocumentsPage() {
   const [docketDialog, setDocketDialog] = useState<{ id: string; current: string } | null>(null);
   const [docketValue, setDocketValue] = useState("");
 
+  // Visor / editor de contenido del documento
+  const [viewDoc, setViewDoc] = useState<{ id: string; title: string; isDraft: boolean } | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [contentText, setContentText] = useState("");
+
   const { data, isLoading } = useQuery({ queryKey: ["myDocs"], queryFn: documentsApi.mine });
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
 
@@ -92,6 +100,42 @@ export default function MyDocumentsPage() {
     },
     onError: (e) => notify.error(errorMessage(e, "No se pudo guardar el radicado")),
   });
+
+  // Carga el texto del documento cuando se abre el visor.
+  const contentQuery = useQuery({
+    queryKey: ["docText", viewDoc?.id],
+    queryFn: () => documentsApi.text(viewDoc!.id),
+    enabled: !!viewDoc,
+  });
+
+  // El endpoint /text antepone una línea de aviso "⚠️ BORRADOR — …" para los
+  // borradores. Se quita para el editor para no guardarla dentro del .docx.
+  const cleanBody = (raw: string) =>
+    raw.replace(/^⚠️ BORRADOR[^\n]*\n\n?/u, "");
+
+  const bodyText = cleanBody(contentQuery.data?.text ?? "");
+
+  const saveContent = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) => documentsApi.updateContent(id, text),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["myDocs"] });
+      qc.invalidateQueries({ queryKey: ["docText", viewDoc?.id] });
+      notify.success("Borrador actualizado");
+      setEditMode(false);
+    },
+    onError: (e) => notify.error(errorMessage(e, "No se pudo guardar el borrador")),
+  });
+
+  const openViewer = (id: string, title: string, isDraft: boolean) => {
+    setViewDoc({ id, title, isDraft });
+    setEditMode(false);
+    setContentText("");
+  };
+
+  const startEditing = () => {
+    setContentText(bodyText);
+    setEditMode(true);
+  };
 
   return (
     <Box>
@@ -191,6 +235,10 @@ export default function MyDocumentsPage() {
                 </TableCell>
                 <TableCell><DeadlineChip deadline={d.deadline} /></TableCell>
                 <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                  <Button size="small" startIcon={<VisibilityIcon />}
+                    onClick={() => openViewer(d.transactionId, templateName(d.templateId), d.status === "DRAFT")}>
+                    {d.status === "DRAFT" ? "Ver/Editar" : "Ver"}
+                  </Button>
                   <Button size="small" startIcon={<DownloadIcon />}
                     onClick={() => documentsApi.download(d.transactionId, d.fileName, "docx")}>
                     Word
@@ -232,6 +280,67 @@ export default function MyDocumentsPage() {
             onClick={() => docketDialog && saveDocket.mutate({ id: docketDialog.id, docket: docketValue })}>
             {saveDocket.isPending ? "Guardando…" : "Guardar"}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Visor / editor de contenido */}
+      <Dialog open={!!viewDoc} onClose={() => setViewDoc(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>{editMode ? "Editar borrador" : "Vista del documento"} — {viewDoc?.title}</span>
+          {viewDoc?.isDraft && (
+            <Chip label="Borrador" color="warning" size="small" />
+          )}
+        </DialogTitle>
+        <DialogContent dividers>
+          {contentQuery.isLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : contentQuery.isError ? (
+            <Alert severity="error">No se pudo cargar el contenido del documento.</Alert>
+          ) : editMode ? (
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Puede usar <strong>**negrilla**</strong> y <em>*cursiva*</em>. Cada línea es un párrafo.
+                Al guardar se regenera el documento conservando el formato de la plantilla.
+              </Alert>
+              <TextField
+                multiline fullWidth minRows={18} maxRows={30}
+                value={contentText}
+                onChange={(e) => setContentText(e.target.value)}
+                slotProps={{ htmlInput: { style: { fontFamily: "monospace", fontSize: 13 } } }}
+              />
+            </>
+          ) : (
+            <Box sx={{ whiteSpace: "pre-wrap", fontFamily: "serif", fontSize: 14, lineHeight: 1.6 }}>
+              {viewDoc?.isDraft && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Este documento es un borrador y requiere revisión de un abogado antes de su uso.
+                </Alert>
+              )}
+              {bodyText || "(Documento vacío)"}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {editMode ? (
+            <>
+              <Button onClick={() => setEditMode(false)} disabled={saveContent.isPending}>Cancelar</Button>
+              <Button variant="contained" disabled={!contentText.trim() || saveContent.isPending}
+                onClick={() => viewDoc && saveContent.mutate({ id: viewDoc.id, text: contentText })}>
+                {saveContent.isPending ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setViewDoc(null)}>Cerrar</Button>
+              {viewDoc?.isDraft && !contentQuery.isLoading && !contentQuery.isError && (
+                <Button variant="contained" startIcon={<EditIcon />} onClick={startEditing}>
+                  Editar
+                </Button>
+              )}
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Box>
