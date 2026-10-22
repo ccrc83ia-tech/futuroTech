@@ -21,7 +21,6 @@ import {
   TableRow,
   TextField,
   Tooltip,
-  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -31,6 +30,7 @@ import type { Template } from "../api/types";
 import { PERMISSIONS } from "../api/types";
 import { EmptyState, LoadingState } from "../components/states";
 import { useNotify } from "../components/NotificationProvider";
+import PageHeader from "../components/PageHeader";
 import { useAuthStore } from "../store/auth";
 import RagDocumentsDialog from "./RagDocumentsDialog";
 
@@ -118,10 +118,11 @@ export default function TemplatesPage() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h4">Plantillas</Typography>
-        {canManage && <Button variant="contained" onClick={() => setEditing(toEdit())}>Nueva plantilla</Button>}
-      </Box>
+      <PageHeader
+        title="Plantillas"
+        subtitle="Tipos de documento, su formato modelo y las fuentes normativas."
+        action={canManage && <Button variant="contained" onClick={() => setEditing(toEdit())}>Nueva plantilla</Button>}
+      />
 
       <input ref={fileRef} type="file" accept=".docx" hidden onChange={onFileChosen} />
 

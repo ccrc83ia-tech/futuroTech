@@ -33,6 +33,7 @@ import { usersApi } from "../api/endpoints";
 import type { UserResponse } from "../api/types";
 import { PERMISSIONS } from "../api/types";
 import { useNotify } from "../components/NotificationProvider";
+import PageHeader from "../components/PageHeader";
 import { EmptyState, LoadingState } from "../components/states";
 
 // ─── Constantes de rol ───────────────────────────────────────────────────────
@@ -209,10 +210,11 @@ export default function UsersPage() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h4">Usuarios</Typography>
-        <Button variant="contained" onClick={openNew}>Nuevo usuario</Button>
-      </Box>
+      <PageHeader
+        title="Usuarios"
+        subtitle="Gestión de cuentas, roles y permisos del despacho."
+        action={<Button variant="contained" onClick={openNew}>Nuevo usuario</Button>}
+      />
 
       {isLoading ? (
         <LoadingState label="Cargando usuarios…" />

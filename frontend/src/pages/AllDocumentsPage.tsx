@@ -30,6 +30,8 @@ import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
 import { DeadlineChip } from "../components/DeadlineChip";
 import { useNotify } from "../components/NotificationProvider";
+import PageHeader from "../components/PageHeader";
+import RowActions from "../components/RowActions";
 import { EmptyState, LoadingState } from "../components/states";
 import { useAuthStore } from "../store/auth";
 
@@ -101,13 +103,17 @@ export default function AllDocumentsPage() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h4">Todos los documentos</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {filtered?.length ?? 0} resultado{filtered?.length !== 1 ? "s" : ""}
-          {data && filtered.length !== data.length ? ` de ${data.length}` : ""}
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Todos los documentos"
+        subtitle="Documentos generados por todo el equipo."
+        action={
+          <Typography variant="body2" color="text.secondary">
+            {filtered?.length ?? 0} resultado{filtered?.length !== 1 ? "s" : ""}
+            {data && filtered.length !== data.length ? ` de ${data.length}` : ""}
+          </Typography>
+        }
+      />
+
 
       {/* Búsqueda y filtros */}
       <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap" }}>
@@ -216,24 +222,31 @@ export default function AllDocumentsPage() {
                     <Typography variant="body2" color="text.disabled">—</Typography>
                   )}
                 </TableCell>
-                <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                  <Button size="small" startIcon={<DownloadIcon />}
-                    onClick={() => documentsApi.download(d.transactionId, d.fileName, "docx")}>
-                    Word
-                  </Button>
-                  <Button size="small" startIcon={<DownloadIcon />}
-                    onClick={() => documentsApi.download(d.transactionId, undefined, "pdf")}>
-                    PDF
-                  </Button>
-                  {canReview && (d.status === "DRAFT" || d.status === "REVIEWED") && (
-                    <Button size="small" color="success"
-                      variant={d.status === "REVIEWED" ? "contained" : "text"}
-                      startIcon={<CheckCircleIcon />}
-                      disabled={review.isPending}
-                      onClick={() => review.mutate({ id: d.transactionId, status: "APPROVED" })}>
-                      Aprobar
-                    </Button>
-                  )}
+                <TableCell align="right">
+                  <RowActions
+                    actions={[
+                      {
+                        label: "Descargar Word",
+                        icon: <DownloadIcon fontSize="small" />,
+                        onClick: () => documentsApi.download(d.transactionId, d.fileName, "docx"),
+                      },
+                      {
+                        label: "Descargar PDF",
+                        icon: <DownloadIcon fontSize="small" />,
+                        onClick: () => documentsApi.download(d.transactionId, undefined, "pdf"),
+                      },
+                      ...(canReview && (d.status === "DRAFT" || d.status === "REVIEWED")
+                        ? [{
+                            label: "Aprobar",
+                            icon: <CheckCircleIcon fontSize="small" />,
+                            color: "success" as const,
+                            disabled: review.isPending,
+                            onClick: () => review.mutate({ id: d.transactionId, status: "APPROVED" }),
+                            divider: true,
+                          }]
+                        : []),
+                    ]}
+                  />
                 </TableCell>
               </TableRow>
             ))}

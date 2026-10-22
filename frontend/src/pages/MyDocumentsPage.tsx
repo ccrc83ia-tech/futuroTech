@@ -27,14 +27,18 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
 import { DeadlineChip } from "../components/DeadlineChip";
+import DocumentEditor from "../components/DocumentEditor";
 import { useNotify } from "../components/NotificationProvider";
+import PageHeader from "../components/PageHeader";
+import RowActions from "../components/RowActions";
 import { EmptyState, LoadingState } from "../components/states";
 import { useAuthStore } from "../store/auth";
+import { htmlToPlainText, markdownToHtml } from "../utils/markdownToHtml";
 
 const STATUS_COLOR: Record<DocumentStatus, "warning" | "info" | "success" | "default"> = {
   DRAFT: "warning", REVIEWED: "info", APPROVED: "success", VOID: "default",
@@ -55,10 +59,10 @@ export default function MyDocumentsPage() {
   const [docketDialog, setDocketDialog] = useState<{ id: string; current: string } | null>(null);
   const [docketValue, setDocketValue] = useState("");
 
-  // Visor / editor de contenido del documento
+  // Visor / editor de contenido del documento (HTML para el editor enriquecido)
   const [viewDoc, setViewDoc] = useState<{ id: string; title: string; isDraft: boolean } | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [contentText, setContentText] = useState("");
+  const [docHtml, setDocHtml] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["myDocs"], queryFn: documentsApi.mine });
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
@@ -114,9 +118,16 @@ export default function MyDocumentsPage() {
     raw.replace(/^⚠️ BORRADOR[^\n]*\n\n?/u, "");
 
   const bodyText = cleanBody(contentQuery.data?.text ?? "");
+  const bodyHtml = useMemo(() => markdownToHtml(bodyText), [bodyText]);
+
+  // Sincroniza el HTML del editor cuando se carga el texto del documento.
+  useEffect(() => {
+    setDocHtml(bodyHtml);
+  }, [bodyHtml]);
 
   const saveContent = useMutation({
-    mutationFn: ({ id, text }: { id: string; text: string }) => documentsApi.updateContent(id, text),
+    mutationFn: ({ id, html }: { id: string; html: string }) =>
+      documentsApi.updateContent(id, htmlToPlainText(html)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["myDocs"] });
       qc.invalidateQueries({ queryKey: ["docText", viewDoc?.id] });
@@ -129,17 +140,15 @@ export default function MyDocumentsPage() {
   const openViewer = (id: string, title: string, isDraft: boolean) => {
     setViewDoc({ id, title, isDraft });
     setEditMode(false);
-    setContentText("");
   };
 
   const startEditing = () => {
-    setContentText(bodyText);
     setEditMode(true);
   };
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Mis documentos</Typography>
+      <PageHeader title="Mis documentos" subtitle="Documentos que ha generado, con su estado y plazos." />
 
       {/* Barra de búsqueda y filtros */}
       <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap" }}>
@@ -234,26 +243,37 @@ export default function MyDocumentsPage() {
                   <Chip label={STATUS_LABEL[d.status]} color={STATUS_COLOR[d.status]} size="small" />
                 </TableCell>
                 <TableCell><DeadlineChip deadline={d.deadline} /></TableCell>
-                <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                  <Button size="small" startIcon={<VisibilityIcon />}
-                    onClick={() => openViewer(d.transactionId, templateName(d.templateId), d.status === "DRAFT")}>
-                    {d.status === "DRAFT" ? "Ver/Editar" : "Ver"}
-                  </Button>
-                  <Button size="small" startIcon={<DownloadIcon />}
-                    onClick={() => documentsApi.download(d.transactionId, d.fileName, "docx")}>
-                    Word
-                  </Button>
-                  <Button size="small" startIcon={<DownloadIcon />}
-                    onClick={() => documentsApi.download(d.transactionId, undefined, "pdf")}>
-                    PDF
-                  </Button>
-                  {canReview && d.status === "DRAFT" && (
-                    <Button size="small" color="success" startIcon={<CheckCircleIcon />}
-                      disabled={review.isPending}
-                      onClick={() => review.mutate({ id: d.transactionId, status: "APPROVED" })}>
-                      Aprobar
-                    </Button>
-                  )}
+                <TableCell align="right">
+                  <RowActions
+                    actions={[
+                      {
+                        label: d.status === "DRAFT" ? "Ver / Editar" : "Ver",
+                        icon: d.status === "DRAFT" ? <EditIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />,
+                        onClick: () => openViewer(d.transactionId, templateName(d.templateId), d.status === "DRAFT"),
+                      },
+                      {
+                        label: "Descargar Word",
+                        icon: <DownloadIcon fontSize="small" />,
+                        onClick: () => documentsApi.download(d.transactionId, d.fileName, "docx"),
+                        divider: true,
+                      },
+                      {
+                        label: "Descargar PDF",
+                        icon: <DownloadIcon fontSize="small" />,
+                        onClick: () => documentsApi.download(d.transactionId, undefined, "pdf"),
+                      },
+                      ...(canReview && d.status === "DRAFT"
+                        ? [{
+                            label: "Aprobar",
+                            icon: <CheckCircleIcon fontSize="small" />,
+                            color: "success" as const,
+                            disabled: review.isPending,
+                            onClick: () => review.mutate({ id: d.transactionId, status: "APPROVED" }),
+                            divider: true,
+                          }]
+                        : []),
+                    ]}
+                  />
                 </TableCell>
               </TableRow>
             ))}
@@ -298,36 +318,34 @@ export default function MyDocumentsPage() {
             </Box>
           ) : contentQuery.isError ? (
             <Alert severity="error">No se pudo cargar el contenido del documento.</Alert>
-          ) : editMode ? (
-            <>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Puede usar <strong>**negrilla**</strong> y <em>*cursiva*</em>. Cada línea es un párrafo.
-                Al guardar se regenera el documento conservando el formato de la plantilla.
-              </Alert>
-              <TextField
-                multiline fullWidth minRows={18} maxRows={30}
-                value={contentText}
-                onChange={(e) => setContentText(e.target.value)}
-                slotProps={{ htmlInput: { style: { fontFamily: "monospace", fontSize: 13 } } }}
-              />
-            </>
           ) : (
-            <Box sx={{ whiteSpace: "pre-wrap", fontFamily: "serif", fontSize: 14, lineHeight: 1.6 }}>
+            <>
               {viewDoc?.isDraft && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   Este documento es un borrador y requiere revisión de un abogado antes de su uso.
                 </Alert>
               )}
-              {bodyText || "(Documento vacío)"}
-            </Box>
+              {editMode && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Edite el documento con la barra de formato. Al guardar se regenera
+                  conservando el membrete y el formato de la plantilla.
+                </Alert>
+              )}
+              {/* Mismo control de visualización que el paso 3 del asistente */}
+              <DocumentEditor
+                content={docHtml}
+                onChange={setDocHtml}
+                readOnly={!editMode}
+              />
+            </>
           )}
         </DialogContent>
         <DialogActions>
           {editMode ? (
             <>
-              <Button onClick={() => setEditMode(false)} disabled={saveContent.isPending}>Cancelar</Button>
-              <Button variant="contained" disabled={!contentText.trim() || saveContent.isPending}
-                onClick={() => viewDoc && saveContent.mutate({ id: viewDoc.id, text: contentText })}>
+              <Button onClick={() => { setEditMode(false); setDocHtml(bodyHtml); }} disabled={saveContent.isPending}>Cancelar</Button>
+              <Button variant="contained" disabled={!docHtml.trim() || saveContent.isPending}
+                onClick={() => viewDoc && saveContent.mutate({ id: viewDoc.id, html: docHtml })}>
                 {saveContent.isPending ? "Guardando…" : "Guardar cambios"}
               </Button>
             </>

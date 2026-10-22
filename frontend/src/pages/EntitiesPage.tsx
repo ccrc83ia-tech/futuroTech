@@ -15,7 +15,6 @@ import {
   TableRow,
   TextField,
   Tooltip,
-  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -25,6 +24,7 @@ import type { RecipientEntity } from "../api/types";
 import { PERMISSIONS } from "../api/types";
 import { EmptyState, LoadingState } from "../components/states";
 import { useNotify } from "../components/NotificationProvider";
+import PageHeader from "../components/PageHeader";
 import { useAuthStore } from "../store/auth";
 
 const EMPTY: RecipientEntity = {
@@ -73,10 +73,11 @@ export default function EntitiesPage() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h4">Entidades destinatarias</Typography>
-        {canManage && <Button variant="contained" onClick={() => setEditing({ ...EMPTY })}>Nueva entidad</Button>}
-      </Box>
+      <PageHeader
+        title="Entidades destinatarias"
+        subtitle="Directorio de entidades a las que se dirigen los documentos."
+        action={canManage && <Button variant="contained" onClick={() => setEditing({ ...EMPTY })}>Nueva entidad</Button>}
+      />
 
       {isLoading ? (
         <LoadingState label="Cargando entidades…" />

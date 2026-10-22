@@ -12,6 +12,7 @@ import {
   AppBar,
   Avatar,
   Box,
+  Container,
   Divider,
   Drawer,
   IconButton,
@@ -187,7 +188,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         }}
       >
         <Toolbar />
-        {children}
+        <Container maxWidth="xl" disableGutters sx={{ mx: "auto" }}>
+          {children}
+        </Container>
       </Box>
     </Box>
   );
