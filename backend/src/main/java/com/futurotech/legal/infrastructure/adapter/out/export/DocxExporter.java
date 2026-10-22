@@ -30,6 +30,10 @@ public class DocxExporter {
     private static final Pattern INLINE = Pattern.compile(
             "(\\*\\*\\*(.+?)\\*\\*\\*|\\*\\*(.+?)\\*\\*|\\*(.+?)\\*)");
 
+    /** Estilo de cuerpo de las minutas de la firma: fuente Cambria, 14 pt, texto justificado. */
+    private static final String BODY_FONT = "Cambria";
+    private static final int BODY_FONT_SIZE = 14;
+
     public byte[] build(String content, Branding branding, byte[] formatDocBytes) {
         if (formatDocBytes != null && formatDocBytes.length > 0) {
             return buildFromFormat(content, formatDocBytes);
@@ -129,6 +133,7 @@ public class DocxExporter {
                 h.setAlignment(ParagraphAlignment.CENTER);
                 XWPFRun r = h.createRun();
                 r.setText(branding.headerText());
+                r.setFontFamily(BODY_FONT);
                 r.setBold(true);
                 r.setFontSize(14);
             }
@@ -148,11 +153,17 @@ public class DocxExporter {
         }
     }
 
-    /** Añade el cuerpo parseando markdown inline (**negrita**, *cursiva*). */
+    /**
+     * Añade el cuerpo parseando markdown inline (**negrita**, *cursiva*).
+     * Cada párrafo se emite con el estilo de las minutas de la firma: justificado
+     * y sin espacio posterior entre párrafos (el salto de línea lo da el propio
+     * texto de la IA, igual que en los modelos reales).
+     */
     private void addFormattedBody(XWPFDocument doc, String content) {
         String clean = stripMarkdownFences(content);
         for (String line : clean.split("\n")) {
             XWPFParagraph p = doc.createParagraph();
+            applyBodyParagraphStyle(p);
             String stripped = line.strip();
             if (stripped.isEmpty()) {
                 continue;
@@ -166,27 +177,40 @@ public class DocxExporter {
         int last = 0;
         while (m.find()) {
             if (m.start() > last) {
-                p.createRun().setText(text.substring(last, m.start()));
+                applyBodyRunStyle(p.createRun()).setText(text.substring(last, m.start()));
             }
             if (m.group(2) != null) {
-                XWPFRun r = p.createRun();
+                XWPFRun r = applyBodyRunStyle(p.createRun());
                 r.setText(m.group(2));
                 r.setBold(true);
                 r.setItalic(true);
             } else if (m.group(3) != null) {
-                XWPFRun r = p.createRun();
+                XWPFRun r = applyBodyRunStyle(p.createRun());
                 r.setText(m.group(3));
                 r.setBold(true);
             } else if (m.group(4) != null) {
-                XWPFRun r = p.createRun();
+                XWPFRun r = applyBodyRunStyle(p.createRun());
                 r.setText(m.group(4));
                 r.setItalic(true);
             }
             last = m.end();
         }
         if (last < text.length()) {
-            p.createRun().setText(text.substring(last));
+            applyBodyRunStyle(p.createRun()).setText(text.substring(last));
         }
+    }
+
+    /** Aplica fuente Cambria 14 pt a un run, replicando el cuerpo de las minutas. */
+    private static XWPFRun applyBodyRunStyle(XWPFRun run) {
+        run.setFontFamily(BODY_FONT);
+        run.setFontSize(BODY_FONT_SIZE);
+        return run;
+    }
+
+    /** Justifica el párrafo y elimina el espacio posterior, como en las minutas. */
+    private static void applyBodyParagraphStyle(XWPFParagraph p) {
+        p.setAlignment(ParagraphAlignment.BOTH);
+        p.setSpacingAfter(0);
     }
 
     static String stripMarkdownFences(String text) {

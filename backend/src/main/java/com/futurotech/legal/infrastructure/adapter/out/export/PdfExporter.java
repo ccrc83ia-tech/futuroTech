@@ -72,10 +72,16 @@ public class PdfExporter {
                 doc.add(new Paragraph(" "));
             }
 
-            Font body = FontFactory.getFont(FontFactory.HELVETICA, 11);
+            // Cuerpo con fuente serif justificada, coherente con el estilo Cambria 14
+            // de las minutas (OpenPDF no incluye Cambria; Times New Roman es el
+            // equivalente serif estándar disponible en los visores de PDF).
+            Font body = FontFactory.getFont(FontFactory.TIMES_ROMAN, 12);
             for (String line : DocxExporter.stripMarkdownFences(content).split("\n")) {
                 String stripped = line.strip();
-                doc.add(new Paragraph(stripped.isEmpty() ? " " : stripReplacedMarkdown(stripped), body));
+                Paragraph bodyParagraph = new Paragraph(
+                        stripped.isEmpty() ? " " : stripReplacedMarkdown(stripped), body);
+                bodyParagraph.setAlignment(Element.ALIGN_JUSTIFIED);
+                doc.add(bodyParagraph);
             }
 
             if (branding != null && branding.footerText() != null && !branding.footerText().isBlank()) {
