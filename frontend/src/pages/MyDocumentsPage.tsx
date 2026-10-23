@@ -1,3 +1,4 @@
+import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -31,6 +32,7 @@ import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { DeadlineChip } from "../components/DeadlineChip";
 import DocumentEditor from "../components/DocumentEditor";
 import { useNotify } from "../components/NotificationProvider";
@@ -47,6 +49,28 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   DRAFT: "Borrador", REVIEWED: "Revisado", APPROVED: "Aprobado", VOID: "Anulado",
 };
 
+// Transición de estado pendiente de confirmación.
+type StatusChange = {
+  id: string;
+  clientName: string;
+  next: "APPROVED" | "VOID";
+};
+
+const CONFIRM_COPY: Record<StatusChange["next"], { title: string; confirmLabel: string; color: "success" | "error"; warning: string }> = {
+  APPROVED: {
+    title: "Aprobar documento",
+    confirmLabel: "Aprobar",
+    color: "success",
+    warning: "La aprobación queda registrada a su nombre y no se puede revertir.",
+  },
+  VOID: {
+    title: "Anular documento",
+    confirmLabel: "Anular",
+    color: "error",
+    warning: "El documento quedará marcado como anulado y no debería enviarse. Esta acción no se puede revertir.",
+  },
+};
+
 export default function MyDocumentsPage() {
   const qc = useQueryClient();
   const notify = useNotify();
@@ -59,10 +83,14 @@ export default function MyDocumentsPage() {
   const [docketDialog, setDocketDialog] = useState<{ id: string; current: string } | null>(null);
   const [docketValue, setDocketValue] = useState("");
 
+  const [statusChange, setStatusChange] = useState<StatusChange | null>(null);
+
   // Visor / editor de contenido del documento (HTML para el editor enriquecido)
   const [viewDoc, setViewDoc] = useState<{ id: string; title: string; isDraft: boolean } | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [docHtml, setDocHtml] = useState("");
+  // Confirmación de descartar cambios sin guardar del editor.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ["myDocs"], queryFn: documentsApi.mine });
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
@@ -91,7 +119,11 @@ export default function MyDocumentsPage() {
 
   const review = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => documentsApi.review(id, status),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["myDocs"] }); notify.success("Documento aprobado"); },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["myDocs"] });
+      notify.success(vars.status === "APPROVED" ? "Documento aprobado" : "Documento anulado");
+      setStatusChange(null);
+    },
     onError: (e) => notify.error(errorMessage(e, "No se pudo actualizar el estado")),
   });
 
@@ -146,6 +178,29 @@ export default function MyDocumentsPage() {
     setEditMode(true);
   };
 
+  // ¿Hay cambios sin guardar en el editor?
+  const isEdited = editMode && docHtml !== bodyHtml;
+
+  // Cierra el visor pidiendo confirmación si hay cambios sin guardar.
+  const requestCloseViewer = () => {
+    if (isEdited) {
+      setConfirmDiscard(true);
+    } else {
+      setViewDoc(null);
+      setEditMode(false);
+    }
+  };
+
+  // Cancela la edición pidiendo confirmación si hay cambios sin guardar.
+  const requestCancelEdit = () => {
+    if (isEdited) {
+      setConfirmDiscard(true);
+    } else {
+      setEditMode(false);
+      setDocHtml(bodyHtml);
+    }
+  };
+
   return (
     <Box>
       <PageHeader title="Mis documentos" subtitle="Documentos que ha generado, con su estado y plazos." />
@@ -156,7 +211,7 @@ export default function MyDocumentsPage() {
           size="small" placeholder="Buscar por cliente, radicado o tipo…"
           value={search} onChange={(e) => setSearch(e.target.value)}
           sx={{ flex: 1, minWidth: 220 }}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
         />
         <TextField select size="small" label="Estado" value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)} sx={{ minWidth: 130 }}>
@@ -262,14 +317,21 @@ export default function MyDocumentsPage() {
                         icon: <DownloadIcon fontSize="small" />,
                         onClick: () => documentsApi.download(d.transactionId, undefined, "pdf"),
                       },
-                      ...(canReview && d.status === "DRAFT"
+                      ...(canReview && (d.status === "DRAFT" || d.status === "REVIEWED")
                         ? [{
                             label: "Aprobar",
                             icon: <CheckCircleIcon fontSize="small" />,
                             color: "success" as const,
-                            disabled: review.isPending,
-                            onClick: () => review.mutate({ id: d.transactionId, status: "APPROVED" }),
+                            onClick: () => setStatusChange({ id: d.transactionId, clientName: d.clientName ?? "este documento", next: "APPROVED" }),
                             divider: true,
+                          }]
+                        : []),
+                      ...(canReview && (d.status === "DRAFT" || d.status === "REVIEWED")
+                        ? [{
+                            label: "Anular",
+                            icon: <BlockIcon fontSize="small" />,
+                            color: "error" as const,
+                            onClick: () => setStatusChange({ id: d.transactionId, clientName: d.clientName ?? "este documento", next: "VOID" }),
                           }]
                         : []),
                     ]}
@@ -304,7 +366,7 @@ export default function MyDocumentsPage() {
       </Dialog>
 
       {/* Visor / editor de contenido */}
-      <Dialog open={!!viewDoc} onClose={() => setViewDoc(null)} maxWidth="md" fullWidth>
+      <Dialog open={!!viewDoc} onClose={requestCloseViewer} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span>{editMode ? "Editar borrador" : "Vista del documento"} — {viewDoc?.title}</span>
           {viewDoc?.isDraft && (
@@ -343,15 +405,15 @@ export default function MyDocumentsPage() {
         <DialogActions>
           {editMode ? (
             <>
-              <Button onClick={() => { setEditMode(false); setDocHtml(bodyHtml); }} disabled={saveContent.isPending}>Cancelar</Button>
-              <Button variant="contained" disabled={!docHtml.trim() || saveContent.isPending}
+              <Button onClick={requestCancelEdit} disabled={saveContent.isPending}>Cancelar</Button>
+              <Button variant="contained" disabled={!docHtml.trim() || !isEdited || saveContent.isPending}
                 onClick={() => viewDoc && saveContent.mutate({ id: viewDoc.id, html: docHtml })}>
                 {saveContent.isPending ? "Guardando…" : "Guardar cambios"}
               </Button>
             </>
           ) : (
             <>
-              <Button onClick={() => setViewDoc(null)}>Cerrar</Button>
+              <Button onClick={requestCloseViewer}>Cerrar</Button>
               {viewDoc?.isDraft && !contentQuery.isLoading && !contentQuery.isError && (
                 <Button variant="contained" startIcon={<EditIcon />} onClick={startEditing}>
                   Editar
@@ -361,6 +423,41 @@ export default function MyDocumentsPage() {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Confirmación de cambio de estado (aprobar / anular) */}
+      <ConfirmDialog
+        open={!!statusChange}
+        title={statusChange ? CONFIRM_COPY[statusChange.next].title : ""}
+        message={
+          statusChange ? (
+            <>
+              ¿Confirma esta acción sobre el documento de <strong>{statusChange.clientName}</strong>?
+            </>
+          ) : ""
+        }
+        confirmLabel={statusChange ? CONFIRM_COPY[statusChange.next].confirmLabel : "Confirmar"}
+        confirmColor={statusChange ? CONFIRM_COPY[statusChange.next].color : "primary"}
+        warning={statusChange ? CONFIRM_COPY[statusChange.next].warning : undefined}
+        pending={review.isPending}
+        onClose={() => setStatusChange(null)}
+        onConfirm={() => statusChange && review.mutate({ id: statusChange.id, status: statusChange.next })}
+      />
+
+      {/* Confirmación de descartar cambios sin guardar del editor */}
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="Descartar cambios"
+        message="Tiene cambios sin guardar en el documento. Si continúa, se perderán."
+        confirmLabel="Descartar"
+        confirmColor="error"
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          setEditMode(false);
+          setDocHtml(bodyHtml);
+          setViewDoc(null);
+        }}
+      />
     </Box>
   );
 }

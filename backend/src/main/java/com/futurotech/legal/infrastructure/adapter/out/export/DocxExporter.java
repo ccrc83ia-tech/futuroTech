@@ -10,10 +10,19 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import org.apache.poi.util.Units;
+import org.apache.poi.wp.usermodel.HeaderFooterType;
+import org.apache.poi.xwpf.usermodel.Document;
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFFooter;
+import org.apache.poi.xwpf.usermodel.XWPFHeader;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableCell;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STBorder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,6 +34,17 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DocxExporter {
+
+    private final LogoResolver logoResolver;
+
+    public DocxExporter(LogoResolver logoResolver) {
+        this.logoResolver = logoResolver;
+    }
+
+    /** Constructor sin dependencias (útil en tests); resuelve el logo por convención. */
+    public DocxExporter() {
+        this(new LogoResolver());
+    }
 
     private static final String DOC_XML = "word/document.xml";
     private static final Pattern INLINE = Pattern.compile(
@@ -128,29 +148,137 @@ public class DocxExporter {
 
     private byte[] buildBranded(String content, Branding branding) {
         try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            if (branding != null && branding.headerText() != null && !branding.headerText().isBlank()) {
-                XWPFParagraph h = doc.createParagraph();
-                h.setAlignment(ParagraphAlignment.CENTER);
-                XWPFRun r = h.createRun();
-                r.setText(branding.headerText());
-                r.setFontFamily(BODY_FONT);
-                r.setBold(true);
-                r.setFontSize(14);
-            }
+            applyLetterhead(doc, branding);
             addFormattedBody(doc, content);
-            if (branding != null && branding.footerText() != null && !branding.footerText().isBlank()) {
-                XWPFParagraph f = doc.createParagraph();
-                f.setAlignment(ParagraphAlignment.CENTER);
-                XWPFRun r = f.createRun();
-                r.setText(branding.footerText());
-                r.setItalic(true);
-                r.setFontSize(8);
-            }
             doc.write(out);
             return out.toByteArray();
         } catch (Exception e) {
             throw new DocumentGenerationException("Error al generar el DOCX", e);
         }
+    }
+
+    /**
+     * Estampa el membrete de la firma como encabezado y pie de sección reales
+     * (se repiten en todas las páginas), usando los datos del branding del
+     * tenant: nombre/encabezado, color corporativo, NIT, dirección, teléfono,
+     * correo y sitio web; y el pie de página. Si no hay branding no hace nada.
+     */
+    private void applyLetterhead(XWPFDocument doc, Branding branding) {
+        if (branding == null) {
+            return;
+        }
+
+        String title = branding.headerText();
+        byte[] logo = logoResolver.resolve(branding);
+
+        if ((title != null && !title.isBlank()) || logo != null) {
+            XWPFHeader header = doc.createHeader(HeaderFooterType.DEFAULT);
+            if (logo != null) {
+                buildHeaderWithLogo(header, title, logo, branding.primaryColor());
+            } else {
+                buildHeaderTextOnly(header, title, branding.primaryColor());
+            }
+        }
+
+        // ── Pie de página: direcciones de oficinas, web y línea WhatsApp ──
+        String footerText = branding.footerText();
+        if (footerText != null && !footerText.isBlank()) {
+            XWPFFooter footer = doc.createFooter(HeaderFooterType.DEFAULT);
+            // Cada segmento separado por " | " en el seed va en su propia línea,
+            // como en las minutas reales de la firma (pie a tres renglones).
+            String[] lines = footerText.split("\\s*\\|\\s*");
+            for (String line : lines) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                XWPFParagraph fp = footer.createParagraph();
+                fp.setAlignment(ParagraphAlignment.CENTER);
+                fp.setSpacingAfter(0);
+                XWPFRun fr = fp.createRun();
+                fr.setText(line.strip());
+                fr.setFontFamily(BODY_FONT);
+                fr.setFontSize(8);
+            }
+        }
+    }
+
+    /** Encabezado a dos columnas: logo a la izquierda, nombre de la firma a la derecha. */
+    private void buildHeaderWithLogo(XWPFHeader header, String title, byte[] logo, String primaryColor) {
+        XWPFTable table = header.createTable(1, 2);
+        table.setWidth("100%");
+        removeTableBorders(table);
+
+        XWPFTableRow row = table.getRow(0);
+
+        // Celda izquierda: logo.
+        XWPFParagraph logoPar = row.getCell(0).getParagraphs().get(0);
+        logoPar.setAlignment(ParagraphAlignment.LEFT);
+        XWPFRun logoRun = logoPar.createRun();
+        try {
+            logoRun.addPicture(
+                    new ByteArrayInputStream(logo),
+                    Document.PICTURE_TYPE_PNG,
+                    "logo.png",
+                    Units.toEMU(150), Units.toEMU(48));
+        } catch (Exception e) {
+            // Si el logo no se puede incrustar, se continúa sin él.
+        }
+
+        // Celda derecha: nombre de la firma.
+        XWPFTableCell right = row.getCell(1);
+        XWPFParagraph titlePar = right.getParagraphs().get(0);
+        titlePar.setAlignment(ParagraphAlignment.RIGHT);
+        if (title != null && !title.isBlank()) {
+            XWPFRun tr = titlePar.createRun();
+            tr.setText(title);
+            tr.setFontFamily(BODY_FONT);
+            tr.setBold(true);
+            tr.setFontSize(13);
+            String color = hexWithoutHash(primaryColor);
+            if (color != null) {
+                tr.setColor(color);
+            }
+        }
+    }
+
+    /** Encabezado solo texto (cuando no hay logo disponible). */
+    private void buildHeaderTextOnly(XWPFHeader header, String title, String primaryColor) {
+        if (title == null || title.isBlank()) {
+            return;
+        }
+        XWPFParagraph hp = header.createParagraph();
+        hp.setAlignment(ParagraphAlignment.CENTER);
+        hp.setSpacingAfter(120);
+        XWPFRun hr = hp.createRun();
+        hr.setText(title);
+        hr.setFontFamily(BODY_FONT);
+        hr.setBold(true);
+        hr.setFontSize(14);
+        String color = hexWithoutHash(primaryColor);
+        if (color != null) {
+            hr.setColor(color);
+        }
+    }
+
+    /** Quita los bordes visibles de la tabla del encabezado. */
+    private static void removeTableBorders(XWPFTable table) {
+        var ctTable = table.getCTTbl();
+        var props = ctTable.getTblPr() != null ? ctTable.getTblPr() : ctTable.addNewTblPr();
+        var borders = props.isSetTblBorders() ? props.getTblBorders() : props.addNewTblBorders();
+        (borders.isSetTop() ? borders.getTop() : borders.addNewTop()).setVal(STBorder.NONE);
+        (borders.isSetBottom() ? borders.getBottom() : borders.addNewBottom()).setVal(STBorder.NONE);
+        (borders.isSetLeft() ? borders.getLeft() : borders.addNewLeft()).setVal(STBorder.NONE);
+        (borders.isSetRight() ? borders.getRight() : borders.addNewRight()).setVal(STBorder.NONE);
+        (borders.isSetInsideH() ? borders.getInsideH() : borders.addNewInsideH()).setVal(STBorder.NONE);
+        (borders.isSetInsideV() ? borders.getInsideV() : borders.addNewInsideV()).setVal(STBorder.NONE);
+    }
+
+    /** Devuelve el color hex sin '#' (POI lo espera así), o null si no es válido. */
+    private static String hexWithoutHash(String hex) {
+        if (hex == null || !hex.matches("#[0-9a-fA-F]{6}")) {
+            return null;
+        }
+        return hex.substring(1);
     }
 
     /**

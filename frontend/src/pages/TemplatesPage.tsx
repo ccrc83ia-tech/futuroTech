@@ -28,6 +28,7 @@ import { errorMessage } from "../api/client";
 import { templatesApi } from "../api/endpoints";
 import type { Template } from "../api/types";
 import { PERMISSIONS } from "../api/types";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { EmptyState, LoadingState } from "../components/states";
 import { useNotify } from "../components/NotificationProvider";
 import PageHeader from "../components/PageHeader";
@@ -67,6 +68,7 @@ export default function TemplatesPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const [ragTarget, setRagTarget] = useState<Template | null>(null);
+  const [toDelete, setToDelete] = useState<Template | null>(null);
 
   const save = useMutation({
     mutationFn: (e: EditTemplate) =>
@@ -91,6 +93,7 @@ export default function TemplatesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["templates"] });
       notify.success("Plantilla eliminada");
+      setToDelete(null);
     },
     onError: (e) => notify.error(errorMessage(e, "No se pudo eliminar la plantilla")),
   });
@@ -177,7 +180,7 @@ export default function TemplatesPage() {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Eliminar plantilla">
-                        <IconButton aria-label={`Eliminar ${t.name}`} onClick={() => remove.mutate(t.templateId)}>
+                        <IconButton aria-label={`Eliminar ${t.name}`} onClick={() => setToDelete(t)}>
                           <DeleteIcon />
                         </IconButton>
                       </Tooltip>
@@ -231,6 +234,25 @@ export default function TemplatesPage() {
         templateName={ragTarget?.name}
         canManage={canManage}
         onClose={() => setRagTarget(null)}
+      />
+
+      {/* Confirmación de borrado de plantilla */}
+      <ConfirmDialog
+        open={!!toDelete}
+        title="Eliminar plantilla"
+        message={
+          toDelete ? (
+            <>
+              ¿Seguro que desea eliminar la plantilla <strong>{toDelete.name}</strong>?
+            </>
+          ) : ""
+        }
+        confirmLabel="Eliminar"
+        confirmColor="error"
+        warning="También se eliminarán sus fuentes normativas (corpus RAG). Esta acción no se puede deshacer."
+        pending={remove.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => toDelete && remove.mutate(toDelete.templateId)}
       />
     </Box>
   );

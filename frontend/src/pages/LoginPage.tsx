@@ -34,7 +34,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      navigate("/generar");
+      // Al Dashboard: los permisos deciden qué ve cada rol (un usuario de solo
+      // consulta no debe aterrizar en la pantalla de generación).
+      navigate("/");
     } catch (err) {
       setError(errorMessage(err, "No se pudo iniciar sesión"));
     } finally {

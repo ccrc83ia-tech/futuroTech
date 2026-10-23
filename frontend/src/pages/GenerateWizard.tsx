@@ -30,7 +30,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, entitiesApi, templatesApi } from "../api/endpoints";
 import type { GeneratedDoc, Template } from "../api/types";
@@ -39,6 +39,17 @@ import { useNotify } from "../components/NotificationProvider";
 import { htmlToPlainText, markdownToHtml } from "../utils/markdownToHtml";
 
 const STEPS = ["Tipo de documento", "Datos del caso", "Generar y revisar"];
+
+// Mensajes que rotan mientras la IA trabaja, para comunicar que el sistema
+// avanza aunque el proceso tarde. No reflejan progreso real.
+const PROGRESS_MESSAGES = [
+  "Analizando los hechos del caso…",
+  "Consultando las fuentes normativas…",
+  "Estructurando el documento jurídico…",
+  "Redactando el contenido…",
+  "Revisando el formato y las citas…",
+  "Ya casi está, ultimando detalles…",
+];
 
 export default function GenerateWizard() {
   const notify = useNotify();
@@ -56,8 +67,23 @@ export default function GenerateWizard() {
   const [originalHtml, setOriginalHtml] = useState<string>("");
   const [loadingText, setLoadingText] = useState(false);
 
+  const [progressIdx, setProgressIdx] = useState(0);
+
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
   const entitiesQuery = useQuery({ queryKey: ["entities"], queryFn: entitiesApi.list });
+
+  // Rota los mensajes de progreso mientras se genera (avanza sin retroceder y se
+  // detiene en el último para no sugerir que terminó antes de tiempo).
+  useEffect(() => {
+    if (!generating) {
+      setProgressIdx(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setProgressIdx((i) => Math.min(i + 1, PROGRESS_MESSAGES.length - 1));
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [generating]);
 
   const canContinue = useMemo(() => {
     if (activeStep === 0) return selected !== null;
@@ -273,8 +299,11 @@ export default function GenerateWizard() {
           {/* Estado: generando */}
           {generating && (
             <Box sx={{ textAlign: "center", py: 4 }}>
-              <Typography sx={{ mb: 2 }}>
-                Generando el documento… esto puede tardar hasta un par de minutos.
+              <Typography sx={{ mb: 0.5, fontWeight: 500 }}>
+                {PROGRESS_MESSAGES[progressIdx]}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                La generación puede tardar hasta un par de minutos. No cierre esta ventana.
               </Typography>
               <LinearProgress />
             </Box>

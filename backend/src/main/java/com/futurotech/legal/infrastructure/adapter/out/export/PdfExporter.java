@@ -10,20 +10,36 @@ import org.springframework.stereotype.Component;
 
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
 import com.futurotech.legal.domain.model.Branding;
+import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
+import com.lowagie.text.Image;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfGState;
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfPageEventHelper;
 import com.lowagie.text.pdf.PdfWriter;
+import com.lowagie.text.pdf.draw.LineSeparator;
 
 /** Generación de PDF con membrete usando OpenPDF. */
 @Component
 public class PdfExporter {
+
+    private final LogoResolver logoResolver;
+
+    public PdfExporter(LogoResolver logoResolver) {
+        this.logoResolver = logoResolver;
+    }
+
+    /** Constructor sin dependencias (útil en tests); resuelve el logo por convención. */
+    public PdfExporter() {
+        this(new LogoResolver());
+    }
 
     /**
      * Construye un PDF a partir de los bytes de un .docx ya generado, extrayendo
@@ -63,13 +79,8 @@ public class PdfExporter {
             }
             doc.open();
 
-            if (branding != null && branding.headerText() != null && !branding.headerText().isBlank()) {
-                Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, Color.decode(
-                        safeColor(branding.primaryColor())));
-                Paragraph header = new Paragraph(branding.headerText(), headerFont);
-                header.setAlignment(Element.ALIGN_CENTER);
-                doc.add(header);
-                doc.add(new Paragraph(" "));
+            if (branding != null) {
+                addLetterhead(doc, branding);
             }
 
             // Cuerpo con fuente serif justificada, coherente con el estilo Cambria 14
@@ -86,10 +97,16 @@ public class PdfExporter {
 
             if (branding != null && branding.footerText() != null && !branding.footerText().isBlank()) {
                 doc.add(new Paragraph(" "));
-                Font footerFont = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, Color.GRAY);
-                Paragraph footer = new Paragraph(branding.footerText(), footerFont);
-                footer.setAlignment(Element.ALIGN_CENTER);
-                doc.add(footer);
+                Font footerFont = FontFactory.getFont(FontFactory.HELVETICA, 8, Color.GRAY);
+                // Cada oficina/segmento (separado por " | ") en su propio renglón.
+                for (String line : branding.footerText().split("\\s*\\|\\s*")) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
+                    Paragraph footer = new Paragraph(line.strip(), footerFont);
+                    footer.setAlignment(Element.ALIGN_CENTER);
+                    doc.add(footer);
+                }
             }
 
             doc.close();
@@ -97,6 +114,58 @@ public class PdfExporter {
         } catch (Exception e) {
             throw new DocumentGenerationException("Error al generar el PDF", e);
         }
+    }
+
+    /**
+     * Estampa el membrete en el PDF: logo a la izquierda y nombre de la firma a
+     * la derecha (en color corporativo) dentro de una tabla sin bordes, con una
+     * línea divisoria debajo. Si no hay logo, el nombre va centrado.
+     */
+    private void addLetterhead(Document doc, Branding branding) throws Exception {
+        byte[] logo = logoResolver.resolve(branding);
+        String title = branding.headerText();
+        boolean hasTitle = title != null && !title.isBlank();
+        if (logo == null && !hasTitle) {
+            return;
+        }
+
+        Font titleFont = FontFactory.getFont(
+                FontFactory.HELVETICA_BOLD, 14, Color.decode(safeColor(branding.primaryColor())));
+
+        if (logo != null) {
+            PdfPTable table = new PdfPTable(2);
+            table.setWidthPercentage(100);
+            table.setWidths(new float[] { 1f, 2f });
+
+            PdfPCell logoCell = new PdfPCell();
+            logoCell.setBorder(com.lowagie.text.Rectangle.NO_BORDER);
+            logoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+            Image img = Image.getInstance(logo);
+            img.scaleToFit(150, 48);
+            logoCell.addElement(img);
+            table.addCell(logoCell);
+
+            PdfPCell titleCell = new PdfPCell();
+            titleCell.setBorder(com.lowagie.text.Rectangle.NO_BORDER);
+            titleCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+            titleCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            if (hasTitle) {
+                Paragraph p = new Paragraph(title, titleFont);
+                p.setAlignment(Element.ALIGN_RIGHT);
+                titleCell.addElement(p);
+            }
+            table.addCell(titleCell);
+            doc.add(table);
+        } else {
+            Paragraph header = new Paragraph(title, titleFont);
+            header.setAlignment(Element.ALIGN_CENTER);
+            doc.add(header);
+        }
+
+        LineSeparator rule = new LineSeparator(
+                0.5f, 100, Color.decode(safeColor(branding.primaryColor())), Element.ALIGN_CENTER, -4);
+        doc.add(new Chunk(rule));
+        doc.add(new Paragraph(" "));
     }
 
     private static String stripReplacedMarkdown(String text) {

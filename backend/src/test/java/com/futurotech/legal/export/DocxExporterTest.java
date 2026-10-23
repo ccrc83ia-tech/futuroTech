@@ -62,6 +62,53 @@ class DocxExporterTest {
         }
     }
 
+    @Test
+    void brandedModeStampsFirmLetterheadAsSectionHeaderAndFooter() throws Exception {
+        Branding branding = new Branding(
+                null,                       // logoUrl (sin logo → encabezado solo texto)
+                "TUFUTURO — Abogados en Pensiones", // headerText
+                "Cra. 46 N.º 52-36 Oficina 501 Medellín | Calle 20 N.º 6-30 Pereira | www.tufuturo.co", // footerText
+                "#1a1a1a",                  // primaryColor
+                "900.123.456-7",            // nit
+                "Cra. 46 N.º 52-36, Medellín", // address
+                "514-11-87",                // phone
+                "gerencia@tufuturo.co",     // email
+                "www.tufuturo.co");         // website
+
+        byte[] out = exporter.build("Señores\nCOLPENSIONES\nAtentamente,", branding, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(out))) {
+            // Encabezado de sección con el nombre de la firma.
+            String headerText = doc.getHeaderList().stream()
+                    .map(XWPFHeader::getText)
+                    .reduce("", String::concat);
+            assertThat(headerText).contains("TUFUTURO — Abogados en Pensiones");
+
+            // Pie de página de sección: cada oficina en su propio renglón.
+            String footerText = doc.getFooterList().stream()
+                    .map(f -> f.getText())
+                    .reduce("", String::concat);
+            assertThat(footerText).contains("Cra. 46 N.º 52-36 Oficina 501 Medellín");
+            assertThat(footerText).contains("Calle 20 N.º 6-30 Pereira");
+            assertThat(footerText).contains("www.tufuturo.co");
+            // El separador " | " del seed no debe aparecer: se parte en renglones.
+            assertThat(footerText).doesNotContain("|");
+
+            // El logo de la firma (classpath:branding/logo.png) se incrusta en el
+            // encabezado como imagen.
+            boolean hasLogo = doc.getHeaderList().stream()
+                    .anyMatch(h -> !h.getAllPictures().isEmpty());
+            assertThat(hasLogo).as("el encabezado debe incrustar el logo de la firma").isTrue();
+
+            // El cuerpo sigue en Cambria 14 justificado.
+            List<XWPFParagraph> bodyParas = doc.getParagraphs().stream()
+                    .filter(p -> p.getText() != null && !p.getText().isBlank())
+                    .toList();
+            assertThat(bodyParas).isNotEmpty();
+            assertThat(bodyParas).allSatisfy(DocxExporterTest::assertCambria14Justified);
+        }
+    }
+
     private static void assertCambria14Justified(XWPFParagraph p) {
         assertThat(p.getAlignment()).isEqualTo(ParagraphAlignment.BOTH);
         for (XWPFRun run : p.getRuns()) {

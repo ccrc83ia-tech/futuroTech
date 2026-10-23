@@ -32,6 +32,7 @@ import { errorMessage } from "../api/client";
 import { usersApi } from "../api/endpoints";
 import type { UserResponse } from "../api/types";
 import { PERMISSIONS } from "../api/types";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useNotify } from "../components/NotificationProvider";
 import PageHeader from "../components/PageHeader";
 import { EmptyState, LoadingState } from "../components/states";
@@ -125,6 +126,7 @@ export default function UsersPage() {
   const notify = useNotify();
   const { data, isLoading } = useQuery({ queryKey: ["users"], queryFn: usersApi.list });
   const [editing, setEditing] = useState<EditUser | null>(null);
+  const [toDelete, setToDelete] = useState<UserResponse | null>(null);
 
   const save = useMutation({
     mutationFn: (u: EditUser) => {
@@ -157,6 +159,7 @@ export default function UsersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
       notify.success("Usuario eliminado");
+      setToDelete(null);
     },
     onError: (e) => notify.error(errorMessage(e, "No se pudo eliminar el usuario")),
   });
@@ -275,7 +278,7 @@ export default function UsersPage() {
                     <Tooltip title="Eliminar usuario">
                       <IconButton
                         aria-label={`Eliminar ${u.username}`}
-                        onClick={(ev) => { ev.stopPropagation(); remove.mutate(u.userId); }}
+                        onClick={(ev) => { ev.stopPropagation(); setToDelete(u); }}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -403,6 +406,25 @@ export default function UsersPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Confirmación de borrado de usuario */}
+      <ConfirmDialog
+        open={!!toDelete}
+        title="Eliminar usuario"
+        message={
+          toDelete ? (
+            <>
+              ¿Seguro que desea eliminar al usuario <strong>{toDelete.fullName}</strong> (<code>{toDelete.username}</code>)?
+            </>
+          ) : ""
+        }
+        confirmLabel="Eliminar"
+        confirmColor="error"
+        warning="El usuario perderá el acceso. Esta acción no se puede deshacer."
+        pending={remove.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => toDelete && remove.mutate(toDelete.userId)}
+      />
     </Box>
   );
 }

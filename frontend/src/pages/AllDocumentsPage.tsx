@@ -1,7 +1,9 @@
+import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
 import EditIcon from "@mui/icons-material/Edit";
+import RateReviewIcon from "@mui/icons-material/RateReview";
 import SearchIcon from "@mui/icons-material/Search";
 import {
   Box,
@@ -28,6 +30,7 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { DeadlineChip } from "../components/DeadlineChip";
 import { useNotify } from "../components/NotificationProvider";
 import PageHeader from "../components/PageHeader";
@@ -42,6 +45,13 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   DRAFT: "Borrador", REVIEWED: "Revisado", APPROVED: "Aprobado", VOID: "Anulado",
 };
 
+// Transición de estado pendiente de confirmación.
+type StatusChange = {
+  id: string;
+  clientName: string;
+  next: "REVIEWED" | "APPROVED" | "VOID";
+};
+
 export default function AllDocumentsPage() {
   const qc = useQueryClient();
   const notify = useNotify();
@@ -53,6 +63,7 @@ export default function AllDocumentsPage() {
   const [filterTemplate, setFilterTemplate] = useState("ALL");
   const [docketDialog, setDocketDialog] = useState<{ id: string; current: string } | null>(null);
   const [docketValue, setDocketValue]   = useState("");
+  const [statusChange, setStatusChange] = useState<StatusChange | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ["allDocs"], queryFn: documentsApi.all });
   const templatesQuery = useQuery({ queryKey: ["templates"], queryFn: templatesApi.list });
@@ -82,13 +93,41 @@ export default function AllDocumentsPage() {
 
   const review = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => documentsApi.review(id, status),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["allDocs"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
-      notify.success("Estado actualizado");
+      notify.success(
+        vars.status === "APPROVED" ? "Documento aprobado"
+          : vars.status === "REVIEWED" ? "Documento marcado como revisado"
+          : vars.status === "VOID" ? "Documento anulado"
+          : "Estado actualizado",
+      );
+      setStatusChange(null);
     },
     onError: (e) => notify.error(errorMessage(e, "No se pudo actualizar el estado")),
   });
+
+  // Texto del diálogo de confirmación según la transición solicitada.
+  const CONFIRM_COPY: Record<StatusChange["next"], { title: string; confirmLabel: string; color: "success" | "primary" | "error"; warning: string }> = {
+    REVIEWED: {
+      title: "Marcar como revisado",
+      confirmLabel: "Marcar revisado",
+      color: "primary",
+      warning: "Indica que leyó el documento. Aún deberá aprobarlo para darlo por definitivo.",
+    },
+    APPROVED: {
+      title: "Aprobar documento",
+      confirmLabel: "Aprobar",
+      color: "success",
+      warning: "La aprobación queda registrada a su nombre y no se puede revertir.",
+    },
+    VOID: {
+      title: "Anular documento",
+      confirmLabel: "Anular",
+      color: "error",
+      warning: "El documento quedará marcado como anulado y no debería enviarse. Esta acción no se puede revertir.",
+    },
+  };
 
   const saveDocket = useMutation({
     mutationFn: ({ id, docket }: { id: string; docket: string }) => documentsApi.updateDocket(id, docket),
@@ -121,7 +160,7 @@ export default function AllDocumentsPage() {
           size="small" placeholder="Buscar por cliente, radicado, autor o tipo…"
           value={search} onChange={(e) => setSearch(e.target.value)}
           sx={{ flex: 1, minWidth: 240 }}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
         />
         <TextField select size="small" label="Estado" value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)} sx={{ minWidth: 130 }}>
@@ -235,14 +274,30 @@ export default function AllDocumentsPage() {
                         icon: <DownloadIcon fontSize="small" />,
                         onClick: () => documentsApi.download(d.transactionId, undefined, "pdf"),
                       },
+                      ...(canReview && d.status === "DRAFT"
+                        ? [{
+                            label: "Marcar revisado",
+                            icon: <RateReviewIcon fontSize="small" />,
+                            color: "primary" as const,
+                            onClick: () => setStatusChange({ id: d.transactionId, clientName: d.clientName ?? "este documento", next: "REVIEWED" }),
+                            divider: true,
+                          }]
+                        : []),
                       ...(canReview && (d.status === "DRAFT" || d.status === "REVIEWED")
                         ? [{
                             label: "Aprobar",
                             icon: <CheckCircleIcon fontSize="small" />,
                             color: "success" as const,
-                            disabled: review.isPending,
-                            onClick: () => review.mutate({ id: d.transactionId, status: "APPROVED" }),
-                            divider: true,
+                            onClick: () => setStatusChange({ id: d.transactionId, clientName: d.clientName ?? "este documento", next: "APPROVED" }),
+                            divider: d.status === "REVIEWED",
+                          }]
+                        : []),
+                      ...(canReview && (d.status === "DRAFT" || d.status === "REVIEWED")
+                        ? [{
+                            label: "Anular",
+                            icon: <BlockIcon fontSize="small" />,
+                            color: "error" as const,
+                            onClick: () => setStatusChange({ id: d.transactionId, clientName: d.clientName ?? "este documento", next: "VOID" }),
                           }]
                         : []),
                     ]}
@@ -275,6 +330,25 @@ export default function AllDocumentsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Confirmación de cambio de estado (revisar / aprobar / anular) */}
+      <ConfirmDialog
+        open={!!statusChange}
+        title={statusChange ? CONFIRM_COPY[statusChange.next].title : ""}
+        message={
+          statusChange ? (
+            <>
+              ¿Confirma esta acción sobre el documento de <strong>{statusChange.clientName}</strong>?
+            </>
+          ) : ""
+        }
+        confirmLabel={statusChange ? CONFIRM_COPY[statusChange.next].confirmLabel : "Confirmar"}
+        confirmColor={statusChange ? CONFIRM_COPY[statusChange.next].color : "primary"}
+        warning={statusChange ? CONFIRM_COPY[statusChange.next].warning : undefined}
+        pending={review.isPending}
+        onClose={() => setStatusChange(null)}
+        onConfirm={() => statusChange && review.mutate({ id: statusChange.id, status: statusChange.next })}
+      />
     </Box>
   );
 }
