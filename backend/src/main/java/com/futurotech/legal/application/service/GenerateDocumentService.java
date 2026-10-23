@@ -26,10 +26,12 @@ import com.futurotech.legal.domain.model.CaseAttachment;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
 import com.futurotech.legal.domain.model.LegalContext;
+import com.futurotech.legal.domain.model.RecipientEntity;
 import com.futurotech.legal.domain.model.Template;
 import com.futurotech.legal.domain.model.TenantConfig;
 import com.futurotech.legal.domain.port.in.GenerateDocumentUseCase;
 import com.futurotech.legal.domain.port.out.AIServicePort;
+import com.futurotech.legal.domain.port.out.EntityRepositoryPort;
 import com.futurotech.legal.domain.port.out.FileExporterPort;
 import com.futurotech.legal.domain.port.out.GeneratedDocumentPort;
 import com.futurotech.legal.domain.port.out.KnowledgeBasePort;
@@ -57,6 +59,7 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     private final FileExporterPort fileExporter;
     private final KnowledgeBasePort knowledgeBase;
     private final GeneratedDocumentPort auditTrail;
+    private final EntityRepositoryPort entityRepo;
 
     /**
      * Serializa las generaciones a {@code generation.max-concurrent} a la vez
@@ -72,6 +75,7 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     public GenerateDocumentService(TenantRepositoryPort tenantRepo, TemplateRepositoryPort templateRepo,
                                    AIServicePort ai, FileExporterPort fileExporter,
                                    KnowledgeBasePort knowledgeBase, GeneratedDocumentPort auditTrail,
+                                   EntityRepositoryPort entityRepo,
                                    @Value("${generation.max-concurrent:1}") int maxConcurrent,
                                    @Value("${generation.acquire-timeout-seconds:180}") long acquireTimeoutSeconds) {
         this.tenantRepo = tenantRepo;
@@ -80,6 +84,7 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         this.fileExporter = fileExporter;
         this.knowledgeBase = knowledgeBase;
         this.auditTrail = auditTrail;
+        this.entityRepo = entityRepo;
         this.generationSlots = new Semaphore(Math.max(1, maxConcurrent), true);
         this.acquireTimeoutSeconds = acquireTimeoutSeconds;
     }
@@ -275,8 +280,33 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         }
 
         Map<String, String> clean = cleanMetadata(cmd.caseFields());
+
+        // Destinatario: el entityId seleccionado en el directorio DEBE llegar al modelo.
+        // Si no se resuelve aquí, el documento ignora a quién va dirigido (lo inventa).
+        RecipientEntity recipient = resolveRecipient(cmd.entityId());
+        if (recipient != null) {
+            // Volcar nombre/ciudad en los caseFields que esperan las plantillas (snake_case)
+            // cuando el usuario no los escribió a mano, sin pisar un valor ya provisto.
+            clean.putIfAbsent("entidad_destinataria", recipient.name());
+            if (recipient.city() != null && !recipient.city().isBlank()) {
+                clean.putIfAbsent("ciudad", recipient.city());
+            }
+            String destinatarioBlock = buildRecipientBlock(recipient);
+            systemPrompt.append("\n\n=== DESTINATARIO DEL DOCUMENTO (USO OBLIGATORIO) ===\n")
+                    .append("INSTRUCCIÓN ABSOLUTA: Este documento va dirigido EXCLUSIVAMENTE a la entidad ")
+                    .append("indicada abajo. Úsala como destinatario en el encabezado ('Señores' + nombre ")
+                    .append("en MAYÚSCULAS) y en todo el cuerpo. QUEDA PROHIBIDO dirigir el documento a ")
+                    .append("cualquier otra entidad o inventar un destinatario distinto.\n\n")
+                    .append(destinatarioBlock)
+                    .append("\n=== FIN DE DESTINATARIO ===");
+        }
+
         String userPrompt = "Genera el documento con plantilla '" + template.templateId()
                 + "' usando estos datos del caso:\n" + clean;
+        if (recipient != null) {
+            userPrompt += "\n\nIMPORTANTE: El documento va dirigido a '" + recipient.name()
+                    + "'. Usa exactamente esa entidad como destinatario; no la cambies por otra.";
+        }
         if (hasAttachments) {
             userPrompt += "\n\nIMPORTANTE: Incorpora los HECHOS de los documentos aportados del caso "
                     + "(sección 'DOCUMENTOS APORTADOS DEL CASO') en la narración de hechos y la "
@@ -285,6 +315,39 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         }
 
         return LegalContext.of(systemPrompt.toString(), userPrompt, clean);
+    }
+
+    /**
+     * Resuelve la entidad destinataria a partir del entityId del comando. Devuelve
+     * {@code null} si no hay entityId o no existe la entidad (p. ej. destinatario
+     * en texto libre vía caseFields), sin romper la generación.
+     */
+    private RecipientEntity resolveRecipient(String entityId) {
+        if (entityId == null || entityId.isBlank()) {
+            return null;
+        }
+        return entityRepo.findById(entityId).orElseGet(() -> {
+            log.warn("entityId '{}' no corresponde a ninguna entidad; se omite del prompt", entityId);
+            return null;
+        });
+    }
+
+    /** Arma el bloque de datos del destinatario (solo campos con valor). */
+    private static String buildRecipientBlock(RecipientEntity e) {
+        StringBuilder sb = new StringBuilder();
+        appendField(sb, "Nombre", e.name());
+        appendField(sb, "NIT", e.nit());
+        appendField(sb, "Representante legal", e.legalRep());
+        appendField(sb, "Dirección", e.address());
+        appendField(sb, "Ciudad", e.city());
+        appendField(sb, "Tipo de entidad", e.entityType());
+        return sb.toString().strip();
+    }
+
+    private static void appendField(StringBuilder sb, String label, String value) {
+        if (value != null && !value.isBlank()) {
+            sb.append(label).append(": ").append(value.strip()).append("\n");
+        }
     }
 
     /**
