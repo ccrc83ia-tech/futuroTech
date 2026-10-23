@@ -15,7 +15,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   InputAdornment,
   MenuItem,
   Table,
@@ -33,7 +32,6 @@ import { errorMessage } from "../api/client";
 import { documentsApi, templatesApi } from "../api/endpoints";
 import type { DocumentStatus } from "../api/types";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { DeadlineChip } from "../components/DeadlineChip";
 import DocumentEditor from "../components/DocumentEditor";
 import { useNotify } from "../components/NotificationProvider";
 import PageHeader from "../components/PageHeader";
@@ -80,8 +78,6 @@ export default function MyDocumentsPage() {
   const [search, setSearch]         = useState("");
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterTemplate, setFilterTemplate] = useState("ALL");
-  const [docketDialog, setDocketDialog] = useState<{ id: string; current: string } | null>(null);
-  const [docketValue, setDocketValue] = useState("");
 
   const [statusChange, setStatusChange] = useState<StatusChange | null>(null);
 
@@ -109,7 +105,6 @@ export default function MyDocumentsPage() {
     return (data ?? []).filter((d) => {
       const matchSearch = !q
         || (d.clientName ?? "").toLowerCase().includes(q)
-        || (d.internalDocket ?? "").toLowerCase().includes(q)
         || templateName(d.templateId).toLowerCase().includes(q);
       const matchStatus = filterStatus === "ALL" || d.status === filterStatus;
       const matchTpl = filterTemplate === "ALL" || d.templateId === filterTemplate;
@@ -125,16 +120,6 @@ export default function MyDocumentsPage() {
       setStatusChange(null);
     },
     onError: (e) => notify.error(errorMessage(e, "No se pudo actualizar el estado")),
-  });
-
-  const saveDocket = useMutation({
-    mutationFn: ({ id, docket }: { id: string; docket: string }) => documentsApi.updateDocket(id, docket),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["myDocs"] });
-      notify.success("Radicado guardado");
-      setDocketDialog(null);
-    },
-    onError: (e) => notify.error(errorMessage(e, "No se pudo guardar el radicado")),
   });
 
   // Carga el texto del documento cuando se abre el visor.
@@ -208,7 +193,7 @@ export default function MyDocumentsPage() {
       {/* Barra de búsqueda y filtros */}
       <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap" }}>
         <TextField
-          size="small" placeholder="Buscar por cliente, radicado o tipo…"
+          size="small" placeholder="Buscar por cliente o tipo…"
           value={search} onChange={(e) => setSearch(e.target.value)}
           sx={{ flex: 1, minWidth: 220 }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
@@ -252,10 +237,8 @@ export default function MyDocumentsPage() {
               <TableCell>Tipo</TableCell>
               <TableCell>Cliente</TableCell>
               <TableCell>Dirigido a</TableCell>
-              <TableCell>Radicado</TableCell>
               <TableCell>Fecha</TableCell>
               <TableCell>Estado</TableCell>
-              <TableCell>Vence</TableCell>
               <TableCell align="right">Acciones</TableCell>
             </TableRow>
           </TableHead>
@@ -275,29 +258,12 @@ export default function MyDocumentsPage() {
                     <Typography variant="body2" noWrap>{d.entityName ?? "—"}</Typography>
                   </Tooltip>
                 </TableCell>
-                {/* Radicado inline */}
-                <TableCell>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Typography variant="body2" color={d.internalDocket ? "text.primary" : "text.disabled"}>
-                      {d.internalDocket ?? "Sin radicar"}
-                    </Typography>
-                    <Tooltip title="Registrar radicado">
-                      <IconButton size="small" onClick={() => {
-                        setDocketDialog({ id: d.transactionId, current: d.internalDocket ?? "" });
-                        setDocketValue(d.internalDocket ?? "");
-                      }}>
-                        <EditIcon sx={{ fontSize: 14 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   {new Date(d.createdAt).toLocaleDateString("es-CO")}
                 </TableCell>
                 <TableCell>
                   <Chip label={STATUS_LABEL[d.status]} color={STATUS_COLOR[d.status]} size="small" />
                 </TableCell>
-                <TableCell><DeadlineChip deadline={d.deadline} /></TableCell>
                 <TableCell align="right">
                   <RowActions
                     actions={[
@@ -342,28 +308,6 @@ export default function MyDocumentsPage() {
           </TableBody>
         </Table>
       )}
-
-      {/* Dialog radicado */}
-      <Dialog open={!!docketDialog} onClose={() => setDocketDialog(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Registrar radicado</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus fullWidth margin="dense"
-            label="Número de radicado"
-            placeholder="Ej: 2025-123456"
-            value={docketValue}
-            onChange={(e) => setDocketValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && docketDialog && saveDocket.mutate({ id: docketDialog.id, docket: docketValue })}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDocketDialog(null)}>Cancelar</Button>
-          <Button variant="contained" disabled={!docketValue.trim() || saveDocket.isPending}
-            onClick={() => docketDialog && saveDocket.mutate({ id: docketDialog.id, docket: docketValue })}>
-            {saveDocket.isPending ? "Guardando…" : "Guardar"}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Visor / editor de contenido */}
       <Dialog open={!!viewDoc} onClose={requestCloseViewer} maxWidth="md" fullWidth>
