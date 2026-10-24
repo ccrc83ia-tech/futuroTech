@@ -1,0 +1,23 @@
+# Copiar a terraform.tfvars y completar. NO subir terraform.tfvars al repo.
+# Los valores sensibles también pueden pasarse por variables de entorno TF_VAR_*.
+
+aws_region   = "us-east-1"
+project_name = "futurotech"
+
+# Key Pair EC2 existente (créalo antes en la consola: EC2 > Key Pairs).
+ssh_key_name = "mi-keypair"
+
+# Restringe el SSH a tu IP: "203.0.113.4/32"
+allowed_ssh_cidr = "0.0.0.0/0"
+
+# Base de datos (mínimo 12 caracteres el password).
+db_password = "cambia-esta-clave-larga"
+
+# Secretos de IA (pueden quedar vacíos y cargarse luego en SSM).
+gemini_api_key     = ""
+groq_api_key       = ""
+openrouter_api_key = ""
+jwt_secret         = ""
+
+# HTTPS gratis: crea el subdominio en https://www.duckdns.org
+duckdns_domain = "futurotech.duckdns.org"

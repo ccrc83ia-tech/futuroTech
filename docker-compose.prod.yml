@@ -1,0 +1,42 @@
+# ============================================================
+# FuturoTech AI — Compose de PRODUCCIÓN (AWS EC2)
+# Diferencias con docker-compose.yml (local):
+#   - SIN servicio 'db'   → PostgreSQL está en RDS (DATABASE_URL apunta allí).
+#   - SIN 'ollama'/'ollama-init' → embeddings y generación son APIs remotas.
+# Los secretos vienen de /opt/futurotech/.env (generado por user_data desde SSM).
+# ============================================================
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - /opt/futurotech/.env
+    environment:
+      # IA multi-proveedor (los valores de las keys llegan por env_file).
+      AI_GENERATOR_MODEL: ${AI_GENERATOR_MODEL:-gemini-2.5-flash}
+      AI_VERIFIER_CITATIONS_MODEL: ${AI_VERIFIER_CITATIONS_MODEL:-llama-3.3-70b-versatile}
+      AI_VERIFIER_DATA_MODEL: ${AI_VERIFIER_DATA_MODEL:-deepseek/deepseek-chat-v3:free}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-gemini-embedding-001}
+      EMBEDDINGS_DIMENSIONS: ${EMBEDDINGS_DIMENSIONS:-768}
+    volumes:
+      # .docx generados persisten en disco de la EC2 (EBS).
+      - generated_docs:/app/generated_docs
+    restart: unless-stopped
+    # El backend queda detrás del Nginx del frontend (no expone 8080 al exterior).
+    expose:
+      - "8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+volumes:
+  generated_docs:

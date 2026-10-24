@@ -7,10 +7,6 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.futurotech.legal.domain.exception.DocumentGenerationException;
@@ -23,22 +19,22 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 
 /**
- * Adaptador de IA sobre Groq (API compatible con OpenAI: POST /chat/completions).
- * Proveedor de generación por defecto. Protegido por circuit breaker + retry
- * (Resilience4j, instancia "groq"). Intercambiable vía {@link AIServicePort}.
+ * Adaptador de IA genérico sobre cualquier API compatible con OpenAI
+ * (POST /chat/completions con {@code Authorization: Bearer}). Una sola clase
+ * sirve a los tres roles del pipeline (generador, verificador de citas,
+ * verificador de datos): se instancia tantas veces como roles en
+ * {@link AiClientsConfig}, cada instancia con su propia URL, modelo, api-key y
+ * su propio circuit breaker + retry (Resilience4j, instancia {@code name}).
  *
- * <p>El {@code base-url} es configurable: migrar a otra API compatible con OpenAI
- * (p.ej. una API paga) solo requiere cambiar URL, modelo y api-key, sin tocar código.
- *
- * <p>Se activa salvo que se fije {@code ai.provider=ollama}.
+ * <p>Migrar de proveedor (Gemini, Groq, OpenRouter, OpenAI, DeepSeek…) solo
+ * requiere cambiar URL + modelo + api-key por variables de entorno, sin tocar
+ * código. Es el núcleo del diseño multi-proveedor costo-cero.
  */
-@Component
-@Primary
-@ConditionalOnProperty(name = "ai.provider", havingValue = "groq", matchIfMissing = true)
-public class GroqClient implements AIServicePort {
+public class OpenAiCompatibleClient implements AIServicePort {
 
-    private static final Logger log = LoggerFactory.getLogger(GroqClient.class);
+    private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleClient.class);
 
+    private final String name;
     private final WebClient webClient;
     private final String apiKey;
     private final String model;
@@ -47,43 +43,39 @@ public class GroqClient implements AIServicePort {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
 
-    public GroqClient(
-            @Value("${ai.groq.base-url:https://api.groq.com/openai/v1}") String baseUrl,
-            @Value("${ai.groq.api-key:}") String apiKey,
-            @Value("${ai.groq.model:openai/gpt-oss-120b}") String model,
-            @Value("${ai.groq.max-tokens:8000}") int maxTokens,
-            @Value("${ai.groq.timeout-seconds:120}") int timeoutSeconds,
-            CircuitBreakerRegistry cbRegistry,
-            RetryRegistry retryRegistry) {
+    public OpenAiCompatibleClient(String name, String baseUrl, String apiKey, String model,
+                                  int maxTokens, int timeoutSeconds,
+                                  CircuitBreakerRegistry cbRegistry, RetryRegistry retryRegistry) {
+        this.name = name;
         this.webClient = WebClient.builder().baseUrl(baseUrl).build();
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;
         this.timeoutSeconds = timeoutSeconds;
-        this.circuitBreaker = cbRegistry.circuitBreaker("groq");
-        this.retry = retryRegistry.retry("groq");
+        this.circuitBreaker = cbRegistry.circuitBreaker(name);
+        this.retry = retryRegistry.retry(name);
     }
 
     @Override
     public String generate(LegalContext context) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new DocumentGenerationException(
-                    "Proveedor de IA no configurado: falta GROQ_API_KEY.");
+                    "Proveedor de IA '" + name + "' no configurado: falta la API key.");
         }
         try {
             return CircuitBreaker.decorateSupplier(circuitBreaker,
                     Retry.decorateSupplier(retry, () -> callApi(context))).get();
         } catch (io.github.resilience4j.circuitbreaker.CallNotPermittedException e) {
-            log.error("Groq circuit breaker ABIERTO: {}", e.getMessage());
+            log.error("[{}] circuit breaker ABIERTO: {}", name, e.getMessage());
             throw new DocumentGenerationException(
                     "Servicio de IA no disponible temporalmente. Intente en unos minutos.");
         } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
-            log.error("Groq respondió {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            log.error("[{}] respondió {}: {}", name, e.getStatusCode(), e.getResponseBodyAsString());
             throw new DocumentGenerationException(mapHttpError(e));
         } catch (DocumentGenerationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Error inesperado llamando a Groq: {}", e.toString());
+            log.error("[{}] error inesperado: {}", name, e.toString());
             throw new DocumentGenerationException(
                     "Error al generar el documento: " + e.getClass().getSimpleName());
         }
@@ -99,7 +91,7 @@ public class GroqClient implements AIServicePort {
             case 429 -> "Se alcanzó el límite de solicitudes del servicio de IA. "
                     + "Espere un momento e intente de nuevo.";
             case 401, 403 -> "Error de autenticación con el servicio de IA. "
-                    + "Verifique la configuración (GROQ_API_KEY).";
+                    + "Verifique la configuración (API key).";
             case 400 -> "El servicio de IA rechazó la solicitud. Puede que los documentos adjuntos "
                     + "excedan la capacidad del modelo; reduzca el contenido e intente de nuevo.";
             default -> "El servicio de IA devolvió un error (" + status + "). Intente de nuevo.";

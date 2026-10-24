@@ -1,0 +1,59 @@
+#!/bin/bash
+set -euo pipefail
+exec > /var/log/user-data.log 2>&1
+echo "=== FuturoTech: configuración del servidor ==="
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg unzip postgresql-client
+
+# --- Docker + Compose plugin ---
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+usermod -aG docker ubuntu
+
+# --- AWS CLI v2 (para leer SSM) ---
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
+REGION="${aws_region}"
+PREFIX="/${project_name}"
+
+getp() { aws ssm get-parameter --with-decryption --region "$REGION" --name "$1" --query 'Parameter.Value' --output text 2>/dev/null || echo ""; }
+
+mkdir -p /opt/futurotech
+cd /opt/futurotech
+
+# --- .env del backend (secretos desde SSM) ---
+cat > /opt/futurotech/.env <<ENVFILE
+DB_NAME=${db_name}
+DB_USER=${db_username}
+DB_PASSWORD=$(getp "$PREFIX/DB_PASSWORD")
+DATABASE_URL=jdbc:postgresql://${db_endpoint}/${db_name}
+GEMINI_API_KEY=$(getp "$PREFIX/GEMINI_API_KEY")
+GROQ_API_KEY=$(getp "$PREFIX/GROQ_API_KEY")
+OPENROUTER_API_KEY=$(getp "$PREFIX/OPENROUTER_API_KEY")
+JWT_SECRET=$(getp "$PREFIX/JWT_SECRET")
+ENVFILE
+chmod 600 /opt/futurotech/.env
+
+# Si el JWT_SECRET en SSM seguía como PENDIENTE, generar uno local.
+if grep -q "JWT_SECRET=PENDIENTE" /opt/futurotech/.env || grep -q "JWT_SECRET=$" /opt/futurotech/.env; then
+  sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -base64 48)|" /opt/futurotech/.env
+fi
+
+# --- Habilitar pgvector en RDS (idempotente) ---
+export PGPASSWORD="$(getp "$PREFIX/DB_PASSWORD")"
+DB_HOST="$(echo "${db_endpoint}" | cut -d: -f1)"
+psql -h "$DB_HOST" -U "${db_username}" -d "${db_name}" -c "CREATE EXTENSION IF NOT EXISTS vector;" || echo "WARN: no se pudo crear la extensión vector (se reintentará manualmente)."
+unset PGPASSWORD
+
+echo "=== FuturoTech: base lista. Falta subir el repo y 'docker compose -f docker-compose.prod.yml up -d'. ==="
+echo "DuckDNS (si aplica): ${duckdns_domain}"

@@ -16,7 +16,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import com.futurotech.legal.application.service.CitationVerificationService;
+import com.futurotech.legal.application.service.DataVerificationService;
 import com.futurotech.legal.application.service.GenerateDocumentService;
+import com.futurotech.legal.domain.model.VerificationResult;
 import com.futurotech.legal.domain.model.Branding;
 import com.futurotech.legal.domain.model.DocumentStatus;
 import com.futurotech.legal.domain.model.GeneratedDocument;
@@ -49,6 +52,8 @@ class GenerateDocumentServiceTest {
     private KnowledgeBasePort knowledgeBase;
     private GeneratedDocumentPort auditTrail;
     private EntityRepositoryPort entityRepo;
+    private CitationVerificationService citationVerification;
+    private DataVerificationService dataVerification;
     private GenerateDocumentService service;
 
     @BeforeEach
@@ -60,10 +65,16 @@ class GenerateDocumentServiceTest {
         knowledgeBase = Mockito.mock(KnowledgeBasePort.class);
         auditTrail = Mockito.mock(GeneratedDocumentPort.class);
         entityRepo = Mockito.mock(EntityRepositoryPort.class);
+        citationVerification = Mockito.mock(CitationVerificationService.class);
+        when(citationVerification.verify(anyString(), any()))
+                .thenReturn(VerificationResult.ok("citations"));
+        dataVerification = Mockito.mock(DataVerificationService.class);
+        when(dataVerification.verify(anyString(), any(), any()))
+                .thenReturn(VerificationResult.ok("data"));
 
         // Timeout corto para que la suite no se bloquee si algo va mal con el semáforo.
         service = new GenerateDocumentService(tenantRepo, templateRepo, ai, fileExporter,
-                knowledgeBase, auditTrail, entityRepo, 1, 5);
+                knowledgeBase, auditTrail, entityRepo, citationVerification, dataVerification, 1, 5);
 
         when(tenantRepo.findById(TENANT)).thenReturn(Optional.of(tenant()));
         when(templateRepo.findById(TEMPLATE)).thenReturn(Optional.of(template()));

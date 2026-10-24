@@ -25,21 +25,45 @@ server:
   port: ${API_PORT:8080}
 
 # --- IA: proveedor de generación ---
-# "groq" (nube, por defecto) u "ollama" (local/on-premise).
+# Pipeline multi-proveedor (todo API compatible con OpenAI). Costo cero por
+# defecto: Gemini Flash (generar) + Groq/Llama (verificar citas) + DeepSeek vía
+# OpenRouter (verificar datos). Cambiar de proveedor = cambiar URL + modelo + key.
 ai:
-  provider: ${AI_PROVIDER:groq}
-  groq:
-    base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
+  # Rol 1: redacta el documento.
+  generator:
+    base-url: ${AI_GENERATOR_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai}
+    api-key: ${GEMINI_API_KEY:}
+    model: ${AI_GENERATOR_MODEL:gemini-2.5-flash}
+    max-tokens: ${AI_GENERATOR_MAX_TOKENS:8000}
+    timeout-seconds: ${AI_GENERATOR_TIMEOUT:120}
+  # Rol 2: verifica que las normas citadas estén en los fragmentos RAG.
+  verifier-citations:
+    base-url: ${AI_VERIFIER_CITATIONS_BASE_URL:https://api.groq.com/openai/v1}
     api-key: ${GROQ_API_KEY:}
-    model: ${GROQ_MODEL:openai/gpt-oss-120b}
-    max-tokens: ${GROQ_MAX_TOKENS:8000}
-    timeout-seconds: ${GROQ_TIMEOUT:120}
-# --- Ollama (embeddings para RAG; y generación si ai.provider=ollama) ---
-ollama:
-  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  generation-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
-  embedding-model: ${OLLAMA_EMBED_MODEL:nomic-embed-text}
-  timeout-seconds: ${OLLAMA_TIMEOUT:120}
+    model: ${AI_VERIFIER_CITATIONS_MODEL:llama-3.3-70b-versatile}
+    max-tokens: ${AI_VERIFIER_CITATIONS_MAX_TOKENS:4000}
+    timeout-seconds: ${AI_VERIFIER_CITATIONS_TIMEOUT:90}
+  # Rol 3: verifica coherencia de datos duros (cálculos, fechas, montos, plazos).
+  verifier-data:
+    base-url: ${AI_VERIFIER_DATA_BASE_URL:https://openrouter.ai/api/v1}
+    api-key: ${OPENROUTER_API_KEY:}
+    model: ${AI_VERIFIER_DATA_MODEL:deepseek/deepseek-chat-v3:free}
+    max-tokens: ${AI_VERIFIER_DATA_MAX_TOKENS:4000}
+    timeout-seconds: ${AI_VERIFIER_DATA_TIMEOUT:90}
+
+# Verificación anti-alucinación (post-generación). Ver CitationVerificationService.
+verification:
+  enabled: ${VERIFICATION_ENABLED:true}
+  citations-enabled: ${VERIFICATION_CITATIONS_ENABLED:true}
+  data-enabled: ${VERIFICATION_DATA_ENABLED:true}
+
+# --- Embeddings para el RAG (Gemini, 768 dims → encaja en vector(768)) ---
+embeddings:
+  base-url: ${EMBEDDINGS_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+  api-key: ${GEMINI_API_KEY:}
+  model: ${EMBEDDINGS_MODEL:gemini-embedding-001}
+  dimensions: ${EMBEDDINGS_DIMENSIONS:768}
+  timeout-seconds: ${EMBEDDINGS_TIMEOUT:60}
 
 # --- RAG ---
 rag:
@@ -70,27 +94,32 @@ security:
 # --- Resilience4j (circuit breaker + retry para los proveedores de IA) ---
 resilience4j:
   circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 50
+        sliding-window-size: 10
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
     instances:
-      groq:
-        failure-rate-threshold: 50
-        sliding-window-size: 10
-        wait-duration-in-open-state: 60s
-        permitted-number-of-calls-in-half-open-state: 3
-      ollama:
-        failure-rate-threshold: 50
-        sliding-window-size: 10
-        wait-duration-in-open-state: 60s
-        permitted-number-of-calls-in-half-open-state: 3
+      ai-generator:
+        base-config: default
+      ai-verifier-citations:
+        base-config: default
+      ai-verifier-data:
+        base-config: default
   retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 2s
+        exponential-backoff-multiplier: 2
     instances:
-      groq:
-        max-attempts: 3
-        wait-duration: 2s
-        exponential-backoff-multiplier: 2
-      ollama:
-        max-attempts: 3
-        wait-duration: 2s
-        exponential-backoff-multiplier: 2
+      ai-generator:
+        base-config: default
+      ai-verifier-citations:
+        base-config: default
+      ai-verifier-data:
+        base-config: default
 
 management:
   endpoints:

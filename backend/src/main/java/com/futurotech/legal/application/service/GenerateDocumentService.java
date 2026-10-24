@@ -60,6 +60,8 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     private final KnowledgeBasePort knowledgeBase;
     private final GeneratedDocumentPort auditTrail;
     private final EntityRepositoryPort entityRepo;
+    private final CitationVerificationService citationVerification;
+    private final DataVerificationService dataVerification;
 
     /**
      * Serializa las generaciones a {@code generation.max-concurrent} a la vez
@@ -73,9 +75,12 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     private final long acquireTimeoutSeconds;
 
     public GenerateDocumentService(TenantRepositoryPort tenantRepo, TemplateRepositoryPort templateRepo,
+                                   @org.springframework.beans.factory.annotation.Qualifier("aiGenerator")
                                    AIServicePort ai, FileExporterPort fileExporter,
                                    KnowledgeBasePort knowledgeBase, GeneratedDocumentPort auditTrail,
                                    EntityRepositoryPort entityRepo,
+                                   CitationVerificationService citationVerification,
+                                   DataVerificationService dataVerification,
                                    @Value("${generation.max-concurrent:1}") int maxConcurrent,
                                    @Value("${generation.acquire-timeout-seconds:180}") long acquireTimeoutSeconds) {
         this.tenantRepo = tenantRepo;
@@ -85,6 +90,8 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         this.knowledgeBase = knowledgeBase;
         this.auditTrail = auditTrail;
         this.entityRepo = entityRepo;
+        this.citationVerification = citationVerification;
+        this.dataVerification = dataVerification;
         this.generationSlots = new Semaphore(Math.max(1, maxConcurrent), true);
         this.acquireTimeoutSeconds = acquireTimeoutSeconds;
     }
@@ -123,7 +130,9 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         String formatStructure = template.hasFormatDoc()
                 ? extractFormatStructure(template.formatDocBytes()) : null;
 
-        LegalContext context = composePrompt(tenant, template, cmd, formatStructure);
+        List<String> ragChunks = new ArrayList<>();
+        StringBuilder facts = new StringBuilder();
+        LegalContext context = composePrompt(tenant, template, cmd, formatStructure, ragChunks, facts);
 
         String rawText;
         try {
@@ -134,16 +143,69 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
             throw e;
         }
 
+        // Verificación anti-alucinación (tolerante a fallos: no rompe la generación).
+        Map<String, String> caseFields = new LinkedHashMap<>(cmd.caseFields());
+        annotateVerification(transactionId, rawText, ragChunks,
+                cleanMetadata(cmd.caseFields()), facts.toString(), caseFields);
+
         String fileName = transactionId + "_" + cmd.templateId() + ".docx";
         String saved = fileExporter.export(rawText, tenant.branding(), fileName, template.formatDocBytes());
 
         GeneratedDocument doc = new GeneratedDocument(
                 transactionId, cmd.templateId(), null, cmd.authorUserId(), cmd.entityId(),
-                cmd.caseFields(), DocumentStatus.DRAFT, null, saved, sha256(rawText),
+                caseFields, DocumentStatus.DRAFT, null, saved, sha256(rawText),
                 Instant.now(), null, null, calculateDeadline(cmd.templateId()));
         auditTrail.save(doc);
         log.info("[{}] Documento registrado (DRAFT): {}", transactionId, saved);
         return doc;
+    }
+
+    /**
+     * Ejecuta las verificaciones anti-alucinación sobre el borrador y anota el
+     * resultado en caseFields con claves técnicas (prefijo "_", excluidas del
+     * prompt). No lanza excepciones: la verificación es best-effort y la revisión
+     * humana (DRAFT) es la salvaguarda final.
+     */
+    private void annotateVerification(UUID transactionId, String rawText, List<String> ragChunks,
+                                      Map<String, String> caseData, String factsBlock,
+                                      Map<String, String> caseFields) {
+        // Verificador de citas (2º modelo).
+        try {
+            var citations = citationVerification.verify(rawText, ragChunks);
+            storeResult(caseFields, "citations", citations);
+            logResult(transactionId, "citas", citations);
+        } catch (Exception e) {
+            log.warn("[{}] Verificación de citas omitida: {}", transactionId, e.getMessage());
+        }
+        // Verificador de datos duros (3er modelo, familia distinta).
+        try {
+            var data = dataVerification.verify(rawText, caseData, factsBlock);
+            storeResult(caseFields, "data", data);
+            logResult(transactionId, "datos", data);
+        } catch (Exception e) {
+            log.warn("[{}] Verificación de datos omitida: {}", transactionId, e.getMessage());
+        }
+    }
+
+    /** Persiste el resultado de una verificación en caseFields con claves técnicas "_". */
+    private static void storeResult(Map<String, String> caseFields, String role,
+                                    com.futurotech.legal.domain.model.VerificationResult r) {
+        caseFields.put("_verification_" + role + "_passed", String.valueOf(r.passed()));
+        if (!r.findings().isEmpty()) {
+            caseFields.put("_verification_" + role + "_findings", String.join(" | ", r.findings()));
+        }
+        if (r.summary() != null && !r.summary().isBlank()) {
+            caseFields.put("_verification_" + role + "_summary", r.summary());
+        }
+    }
+
+    private void logResult(UUID transactionId, String label,
+                           com.futurotech.legal.domain.model.VerificationResult r) {
+        if (!r.passed()) {
+            log.warn("[{}] Verificación de {} con hallazgos: {}", transactionId, label, r.findings());
+        } else {
+            log.info("[{}] Verificación de {} OK", transactionId, label);
+        }
     }
 
     // --- Cálculo de plazos legales ---
@@ -177,7 +239,8 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
     // --- Composición de prompt + RAG estricto (porta la lógica del sistema Python) ---
 
     private LegalContext composePrompt(TenantConfig tenant, Template template,
-                                       GenerateCommand cmd, String formatStructure) {
+                                       GenerateCommand cmd, String formatStructure,
+                                       List<String> ragChunksOut, StringBuilder factsOut) {
         List<String> rules = (cmd.selectedRules() != null && !cmd.selectedRules().isEmpty())
                 ? cmd.selectedRules()
                 : (!template.legalRules().isEmpty() ? template.legalRules() : tenant.legalRules());
@@ -205,6 +268,9 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
         // en el bloque de modo estricto que la restricción no aplica a estos hechos.
         String attachmentsBlock = buildAttachmentsBlock(cmd.caseAttachments());
         boolean hasAttachments = !attachmentsBlock.isEmpty();
+        if (hasAttachments && factsOut != null) {
+            factsOut.append(attachmentsBlock);
+        }
 
         // RAG
         boolean ragStrict = cmd.ragStrict();
@@ -222,7 +288,16 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
             List<String> chunks = knowledgeBase.search(
                     template.templateId(), String.join(" ", queryParts), RAG_RESULTS);
             if (!chunks.isEmpty()) {
-                ragContext = String.join("\n\n---\n\n", chunks);
+                ragChunksOut.addAll(chunks);
+                // Numerar las fuentes para permitir citas inline trazables [Fuente N].
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < chunks.size(); i++) {
+                    if (i > 0) {
+                        sb.append("\n\n");
+                    }
+                    sb.append("[Fuente ").append(i + 1).append("]\n").append(chunks.get(i));
+                }
+                ragContext = sb.toString();
                 log.info("RAG: inyectados {} fragmentos ({} chars)", chunks.size(), ragContext.length());
             }
         }
@@ -234,7 +309,10 @@ public class GenerateDocumentService implements GenerateDocumentUseCase {
                         .append("decretos, leyes y jurisprudencia que aparezcan TEXTUALMENTE en los fragmentos ")
                         .append("de abajo. Queda PROHIBIDO usar conocimiento propio, inventar contenido normativo ")
                         .append("o citar cualquier norma que no esté en estas fuentes. Si un argumento no tiene ")
-                        .append("respaldo en los fragmentos, NO lo incluyas.")
+                        .append("respaldo en los fragmentos, NO lo incluyas. ")
+                        .append("Cada fragmento está numerado como [Fuente N]: cuando cites una norma, añade al ")
+                        .append("final de la frase la referencia a la fuente usada, p. ej. '(Fuente 2)'. Esto ")
+                        .append("permite verificar la trazabilidad; no inventes números de fuente.")
                         .append(hasAttachments
                                 ? " ESTA RESTRICCIÓN APLICA SOLO A NORMATIVA (leyes, decretos, jurisprudencia). "
                                 + "Los HECHOS del caso provienen de los documentos aportados (más abajo) y DEBES usarlos."

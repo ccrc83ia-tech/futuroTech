@@ -1,7 +1,7 @@
 package com.futurotech.legal.infrastructure.adapter.out.rag;
 
+import com.futurotech.legal.domain.port.out.EmbeddingPort;
 import com.futurotech.legal.domain.port.out.KnowledgeBasePort;
-import com.futurotech.legal.infrastructure.adapter.out.ai.OllamaEmbeddingClient;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -21,14 +21,21 @@ public class PgVectorKnowledgeBase implements KnowledgeBasePort {
 
     private static final Logger log = LoggerFactory.getLogger(PgVectorKnowledgeBase.class);
 
+    /** Factor de sobre-recuperación para el reranking: pool = nResults * factor. */
+    private static final int RERANK_POOL_FACTOR = 3;
+
+    /** Inicio de un artículo/numeral jurídico: punto de corte natural de un chunk. */
+    private static final java.util.regex.Pattern LEGAL_BOUNDARY = java.util.regex.Pattern.compile(
+            "(?im)^\\s*(?:art[íi]culo|art\\.|par[áa]grafo|numeral)\\b.*");
+
     private final JdbcTemplate jdbc;
-    private final OllamaEmbeddingClient embeddingClient;
+    private final EmbeddingPort embeddingClient;
     private final int chunkSize;
     private final int chunkOverlap;
 
     public PgVectorKnowledgeBase(
             JdbcTemplate jdbc,
-            OllamaEmbeddingClient embeddingClient,
+            EmbeddingPort embeddingClient,
             @Value("${rag.chunk-size:1500}") int chunkSize,
             @Value("${rag.chunk-overlap:200}") int chunkOverlap) {
         this.jdbc = jdbc;
@@ -60,11 +67,69 @@ public class PgVectorKnowledgeBase implements KnowledgeBasePort {
             return List.of();
         }
         List<Float> queryEmbedding = embeddingClient.embed(query);
-        return jdbc.query(
+        // Recuperación en dos etapas: traer un pool amplio de candidatos por
+        // similitud vectorial y reordenarlos con una señal léxica (solapamiento
+        // de términos query-chunk). Mejora la precisión del top-N frente a usar
+        // solo coseno, sin coste adicional de API. Ver rerank().
+        int poolSize = Math.max(nResults, nResults * RERANK_POOL_FACTOR);
+        List<String> candidates = jdbc.query(
                 "SELECT content FROM template_chunks WHERE template_id = ? "
                 + "ORDER BY embedding <=> ?::vector LIMIT ?",
                 (rs, rowNum) -> rs.getString("content"),
-                templateId, toVectorLiteral(queryEmbedding), nResults);
+                templateId, toVectorLiteral(queryEmbedding), poolSize);
+        return rerank(query, candidates, nResults);
+    }
+
+    /**
+     * Reordena los candidatos combinando su orden vectorial (ya vienen por
+     * similitud) con una señal léxica: cuántos términos de la consulta aparecen
+     * en el fragmento. Favorece fragmentos que mencionan explícitamente los
+     * términos buscados (números de norma, nombres de entidad) sin descartar la
+     * señal semántica. Devuelve los {@code n} mejores.
+     */
+    static List<String> rerank(String query, List<String> candidates, int n) {
+        if (candidates.size() <= n) {
+            return candidates;
+        }
+        List<String> queryTerms = tokenize(query);
+        // Puntuación: posición vectorial (peso decreciente) + solapamiento léxico.
+        List<ScoredChunk> scored = new ArrayList<>();
+        for (int i = 0; i < candidates.size(); i++) {
+            String chunk = candidates.get(i);
+            double vectorScore = 1.0 - (double) i / candidates.size(); // 1.0 el mejor, decrece
+            double lexical = lexicalOverlap(queryTerms, tokenize(chunk));
+            double score = 0.6 * vectorScore + 0.4 * lexical;
+            scored.add(new ScoredChunk(chunk, score));
+        }
+        scored.sort((a, b) -> Double.compare(b.score, a.score));
+        List<String> result = new ArrayList<>();
+        for (int i = 0; i < n && i < scored.size(); i++) {
+            result.add(scored.get(i).chunk);
+        }
+        return result;
+    }
+
+    private static double lexicalOverlap(List<String> queryTerms, List<String> chunkTerms) {
+        if (queryTerms.isEmpty()) {
+            return 0.0;
+        }
+        java.util.Set<String> chunkSet = new java.util.HashSet<>(chunkTerms);
+        long hits = queryTerms.stream().filter(chunkSet::contains).count();
+        return (double) hits / queryTerms.size();
+    }
+
+    /** Tokeniza a minúsculas, descartando términos muy cortos (ruido). */
+    private static List<String> tokenize(String text) {
+        List<String> terms = new ArrayList<>();
+        for (String t : text.toLowerCase().split("[^\\p{L}\\p{Nd}º°]+")) {
+            if (t.length() >= 3) {
+                terms.add(t);
+            }
+        }
+        return terms;
+    }
+
+    private record ScoredChunk(String chunk, double score) {
     }
 
     @Override
@@ -107,7 +172,13 @@ public class PgVectorKnowledgeBase implements KnowledgeBasePort {
         return sb.append(']').toString();
     }
 
-    /** Fragmenta por párrafos respetando tamaño máximo y solapamiento. */
+    /**
+     * Fragmenta por párrafos respetando tamaño máximo y solapamiento, y además
+     * consciente de la estructura legal: si un párrafo inicia un artículo,
+     * parágrafo o numeral y el chunk actual ya tiene contenido, cierra el chunk
+     * para no partir una norma a la mitad. Esto mejora la precisión del RAG
+     * jurídico (los límites de norma son fronteras semánticas naturales).
+     */
     public static List<String> splitText(String text, int chunkSize, int overlap) {
         List<String> paragraphs = new ArrayList<>();
         for (String p : text.split("\n")) {
@@ -118,7 +189,11 @@ public class PgVectorKnowledgeBase implements KnowledgeBasePort {
         List<String> chunks = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         for (String para : paragraphs) {
-            if (current.length() + para.length() + 1 > chunkSize && current.length() > 0) {
+            boolean legalBoundary = LEGAL_BOUNDARY.matcher(para).find();
+            boolean exceedsSize = current.length() + para.length() + 1 > chunkSize;
+            // Cerrar el chunk si: supera el tamaño, o empieza una nueva norma
+            // (y el chunk ya tiene algo). En ambos casos arrastra el solapamiento.
+            if ((exceedsSize || legalBoundary) && current.length() > 0) {
                 chunks.add(current.toString());
                 String tail = overlap > 0 && current.length() > overlap
                         ? current.substring(current.length() - overlap)
