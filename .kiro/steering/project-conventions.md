@@ -14,9 +14,10 @@ Motor Jurídico Universal. Migración desde un sistema Python (FastAPI + Streaml
 | Persistencia | Spring Data JPA + Hibernate ORM 7 sobre PostgreSQL 16 |
 | Vector store | pgvector (extensión de PostgreSQL) — **NO** ChromaDB |
 | Migraciones | Flyway con `spring-boot-starter-flyway` + `flyway-database-postgresql` |
-| IA generación | Groq por defecto (`GroqClient`, OpenAI-compatible). Modelo `openai/gpt-oss-120b`. Ollama on-premise conmutable con `ai.provider=ollama`. **Exactamente UN bean `AIServicePort` activo.** |
-| IA embeddings | Ollama local (`OllamaEmbeddingClient`), `nomic-embed-text`, 768 dims → `vector(768)` |
-| Resiliencia | Resilience4j (circuit breaker + retry) — instancias `groq` y `ollama` |
+| IA generación/verificación | Pipeline multi-proveedor OpenAI-compatible (`OpenAiCompatibleClient` instanciado por rol en `AiClientsConfig`). 3 beans `AIServicePort` con `@Qualifier`: **`aiGenerator`** (`@Primary`, Gemini Flash), **`aiVerifierCitations`** (Groq/Llama), **`aiVerifierData`** (DeepSeek vía OpenRouter). Cambiar de proveedor = cambiar `*_BASE_URL`/`*_MODEL`/key por env, sin tocar código. **Ollama eliminado.** |
+| IA embeddings | Gemini (`GeminiEmbeddingClient implements EmbeddingPort`), `gemini-embedding-001`, `outputDimensionality=768` → `vector(768)` (sin migración de esquema). Caché LRU 256. |
+| Anti-alucinación | `CitationVerificationService` (verifica normas citadas vs. chunks) + `DataVerificationService` (verifica cálculos/fechas/montos). Resultados en `caseFields._verification_*`. Reranking léxico + chunking consciente de estructura legal + citas inline `[Fuente N]`. Tolerantes a fallos. |
+| Resiliencia | Resilience4j (circuit breaker + retry) — `configs.default` + instancias `ai-generator`, `ai-verifier-citations`, `ai-verifier-data` |
 | DOCX export | Apache POI (`DocxExporter`, cuerpo Cambria 14 justificado) + `DocxWatermarkStamper` (VML "BORRADOR") + `DocxSignatureStamper` (firma al aprobar) |
 | PDF export | OpenPDF (`com.github.librepdf:openpdf`, paquete `com.lowagie`) + `PdfExporter` con `WatermarkEvent` |
 | PDF extracción | Apache PDFBox 3 (extracción texto PDF en RAG y adjuntos) |
@@ -179,7 +180,7 @@ Tipologías jurídicas reales derivadas del análisis de las minutas (migración
 - Los `fields` son KEYS en snake_case; el frontend deriva la etiqueta con `humanize()` (no hay mapa de labels por plantilla).
 
 ### Carga de minutas modelo + corpus (`seed-rag.ps1` / `seed-rag.sh`)
-Scripts en la raíz. Por cada plantilla suben su `.docx` modelo (`format-doc`) y sus minutas como corpus RAG (`/documents`). Requieren el stack arriba (Ollama para embeddings) y usuario `manage_templates`. Usan **`curl.exe`** para el multipart (Windows PowerShell 5.1 no tiene `Invoke-RestMethod -Form`). Los `.ps1` con no-ASCII deben guardarse **con BOM UTF-8** (PS 5.1 lee sin BOM como ANSI y rompe tildes/ñ). Solo procesan `.docx`; los `.doc` antiguos deben convertirse antes. Documentado en `docs/OPERACION.md`.
+Scripts en la raíz. Por cada plantilla suben su `.docx` modelo (`format-doc`) y sus minutas como corpus RAG (`/documents`). Requieren el stack arriba (`GEMINI_API_KEY` para embeddings) y usuario `manage_templates`. Usan **`curl.exe`** para el multipart (Windows PowerShell 5.1 no tiene `Invoke-RestMethod -Form`). Los `.ps1` con no-ASCII deben guardarse **con BOM UTF-8** (PS 5.1 lee sin BOM como ANSI y rompe tildes/ñ). Solo procesan `.docx`; los `.doc` antiguos deben convertirse antes. Documentado en `docs/OPERACION.md`.
 
 ---
 
@@ -276,7 +277,9 @@ Scripts en la raíz. Por cada plantilla suben su `.docx` modelo (`format-doc`) y
 ## Estado del proyecto (rama `feature/migracion`)
 
 ### ✅ Completado y en producción
-- **Backend completo**: auth JWT, RBAC, CRUD REST, generación + RAG (pgvector + Groq), exportación DOCX/PDF, auditoría, plazos jurídicos (`deadline`), radicado (`internalDocket`), estadísticas, marca de agua al vuelo, edición de borrador (`PUT /{id}/content`).
+- **Backend completo**: auth JWT, RBAC, CRUD REST, generación + RAG (pgvector + Gemini), exportación DOCX/PDF, auditoría, plazos jurídicos (`deadline`), radicado (`internalDocket`), estadísticas, marca de agua al vuelo, edición de borrador (`PUT /{id}/content`).
+- **IA multi-proveedor costo-cero + anti-alucinación**: pipeline de 3 modelos (Gemini Flash genera, Groq/Llama verifica citas, DeepSeek verifica datos), embeddings Gemini (sin Ollama), reranking + chunking legal + citas `[Fuente N]`.
+- **Despliegue AWS (Terraform)**: `infra/terraform/` (EC2 t3.small, RDS PG16+pgvector, SSM, CloudWatch, EIP) + `docker-compose.prod.yml` sin db/ollama + DuckDNS para HTTPS. Ver `infra/terraform/README.md`.
 - **Fidelidad a las minutas de la firma**: cuerpo Cambria 14 justificado; 7 plantillas por tipología real con prompts que calcan la anatomía; identidad del tenant actualizada (V5); firma estampada al aprobar; scripts `seed-rag` para cargar `.docx` modelo + corpus RAG.
 - **Frontend completo**: Dashboard, wizard de generación, mis documentos, todos los documentos (admin), plantillas con corpus RAG, entidades, empresa, usuarios. Pase de UI/UX: theme central, `PageHeader`, `RowActions` (menú ⋮), visualización unificada con `DocumentEditor`.
 - **Infra**: Docker Compose con 5 servicios + volumen persistente `generated_docs`, scripts `start.ps1/sh`, `seed-rag.ps1/sh`, backups `backup.ps1/sh` + `restore.ps1/sh`, `OPERACION.md`.

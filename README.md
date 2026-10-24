@@ -8,8 +8,8 @@ controlando las alucinaciones mediante RAG estricto sobre fuentes normativas car
 
 ## ¿Qué hace?
 
-- **Genera documentos jurídicos** (DOCX/PDF) con IA (Groq por defecto, Ollama on-premise opcional).
-- **Control anti-alucinación (RAG estricto):** la IA solo cita normas presentes en el corpus cargado por la firma.
+- **Genera documentos jurídicos** (DOCX/PDF) con IA (pipeline multi-proveedor: Gemini genera, Groq y DeepSeek verifican).
+- **Control anti-alucinación (RAG estricto + verificación multi-modelo):** la IA solo cita normas del corpus de la firma, y dos modelos independientes verifican las citas y los datos duros del borrador.
 - **Flujo de revisión:** todo documento nace como BORRADOR con marca de agua; solo un abogado o administrador puede aprobarlo.
 - **Control de plazos:** calcula y muestra el vencimiento legal de cada documento (petición=15 días hábiles, tutela=10).
 - **Radicado:** permite registrar el número de radicado asignado por la entidad destinataria.
@@ -24,10 +24,12 @@ controlando las alucinaciones mediante RAG estricto sobre fuentes normativas car
 |---|---|
 | Backend | Java 25 + Spring Boot 4.1 + Gradle 9.8.1 |
 | Base de datos | PostgreSQL 16 + pgvector |
-| IA generación | Groq (default) / Ollama on-premise |
-| IA embeddings | Ollama (`nomic-embed-text`) |
+| IA generación | Gemini Flash (API OpenAI-compatible, configurable por rol) |
+| IA verificación | Groq/Llama (citas) + DeepSeek vía OpenRouter (datos) |
+| IA embeddings | Gemini `gemini-embedding-001` (768 dims) |
 | Frontend | React 18 + Vite + TypeScript + MUI 6 |
-| Infra | Docker Compose + Nginx |
+| Infra local | Docker Compose + Nginx |
+| Infra AWS | Terraform (EC2 + RDS + SSM + CloudWatch) — ver `infra/terraform/` |
 
 ---
 
@@ -35,16 +37,17 @@ controlando las alucinaciones mediante RAG estricto sobre fuentes normativas car
 
 ### Requisitos
 - Docker Desktop (o Docker Engine + Compose)
-- Una `GROQ_API_KEY` de [console.groq.com](https://console.groq.com) (gratis)
+- Una `GEMINI_API_KEY` de [Google AI Studio](https://aistudio.google.com) (gratis) — generación + embeddings
+- Opcional: `GROQ_API_KEY` y `OPENROUTER_API_KEY` para activar los verificadores anti-alucinación
 
 ### Windows
 ```powershell
 git clone https://github.com/ccrc83ia-tech/futuroTech
 cd futuroTech
 
-# Copia el ejemplo y agrega tu clave de Groq
+# Copia el ejemplo y agrega tus claves de IA
 copy .env.example .env
-# Editar .env y poner GROQ_API_KEY=gsk_...
+# Editar .env y poner GEMINI_API_KEY=... (y opcionalmente GROQ/OPENROUTER)
 
 .\start.ps1
 ```
@@ -54,12 +57,12 @@ copy .env.example .env
 git clone https://github.com/ccrc83ia-tech/futuroTech
 cd futuroTech
 cp .env.example .env
-# Editar .env y poner GROQ_API_KEY=gsk_...
+# Editar .env y poner GEMINI_API_KEY=... (y opcionalmente GROQ/OPENROUTER)
 ./start.sh
 ```
 
-El script crea un `JWT_SECRET` aleatorio si no existe, construye las imágenes y levanta los 5 servicios.
-La primera vez Ollama descarga el modelo de embeddings (~270 MB) — puede tardar varios minutos.
+El script crea un `JWT_SECRET` aleatorio si no existe, construye las imágenes y levanta los servicios.
+La IA (generación, verificación y embeddings) usa APIs remotas — no se descargan modelos locales.
 
 ### Accesos
 | Servicio | URL |
@@ -90,8 +93,10 @@ futuroTech/
 │   │   ├── application/        # Casos de uso (@Service)
 │   │   └── infrastructure/     # Adaptadores (REST, JPA, IA, RAG, exporters)
 │   └── src/main/resources/
-│       ├── db/migration/       # Flyway V1–V4
+│       ├── db/migration/       # Flyway V1–V7
 │       └── rag-corpus/         # Textos base del corpus normativo
+├── infra/terraform/            # IaC AWS (EC2, RDS, SSM, CloudWatch)
+├── docker-compose.prod.yml     # Compose de producción (sin db ni ollama)
 ├── frontend/                   # React 18 + Vite + TypeScript
 │   └── src/
 │       ├── pages/              # 9 páginas (Dashboard, Wizard, Documentos, etc.)
@@ -191,7 +196,7 @@ El corpus base incluye:
 - Ley 1755 de 2015 (derecho de petición)
 - Decreto 2591 de 1991 (tutela)
 
-La firma puede ampliar el corpus desde la UI: **Plantillas → Fuentes normativas → Subir documento** (PDF, DOCX o TXT). La ingesta fragmenta el texto, genera embeddings con Ollama y los indexa en pgvector.
+La firma puede ampliar el corpus desde la UI: **Plantillas → Fuentes normativas → Subir documento** (PDF, DOCX o TXT). La ingesta fragmenta el texto (chunking consciente de estructura legal), genera embeddings con Gemini (768 dims) y los indexa en pgvector. En la búsqueda, un reranking léxico reordena los fragmentos y las fuentes se numeran `[Fuente N]` para citas trazables.
 
 ---
 
@@ -210,14 +215,37 @@ Ver `docs/OPERACION.md` para configurar el backup automático diario.
 
 | Variable | Descripción | Requerida |
 |---|---|---|
-| `GROQ_API_KEY` | Clave API de Groq para generación | Sí |
+| `GEMINI_API_KEY` | Clave de Gemini — generador + embeddings | Sí |
 | `JWT_SECRET` | Secreto para firmar los JWT (auto-generado por `start.ps1`) | Sí |
 | `DB_PASSWORD` | Contraseña de PostgreSQL | Sí (default: `secret`) |
-| `AI_PROVIDER` | `groq` (default) o `ollama` | No |
-| `GROQ_MODEL` | Modelo de Groq (default: `openai/gpt-oss-120b`) | No |
-| `OLLAMA_EMBED_MODEL` | Modelo de embeddings (default: `nomic-embed-text`) | No |
+| `GROQ_API_KEY` | Clave de Groq — verificador de citas | No (degrada a "omitido") |
+| `OPENROUTER_API_KEY` | Clave de OpenRouter — verificador de datos (DeepSeek) | No (degrada a "omitido") |
+| `AI_GENERATOR_MODEL` | Modelo generador (default: `gemini-2.5-flash`) | No |
+| `EMBEDDINGS_DIMENSIONS` | Dimensión de embeddings (default: `768`) | No |
+| `VERIFICATION_ENABLED` | Activa/desactiva la verificación anti-alucinación | No (default `true`) |
 
-Ver `.env.example` para la lista completa.
+Ver `.env.example` para la lista completa (modelos por rol, URLs, interruptores).
+
+---
+
+## Despliegue en AWS
+
+Infraestructura como código en `infra/terraform/` (single-node, costo reducido):
+
+- **EC2 `t3.small`** con backend + frontend en Docker (sin Ollama → instancia pequeña).
+- **RDS PostgreSQL 16** con pgvector.
+- **SSM Parameter Store** para secretos (keys de IA, JWT, DB).
+- **CloudWatch** para logs, **Elastic IP** fija, **DuckDNS + Certbot** para HTTPS gratis.
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars   # editar
+terraform init && terraform apply
+```
+
+Usa `docker-compose.prod.yml` (sin `db` — es RDS — ni Ollama). Pasos completos y costos en `infra/terraform/README.md`.
+
+> **Datos reales (Ley 1581):** el stack de IA gratuito puede usar los datos para entrenar. Para producción con datos de clientes, cambia generador y embeddings a tier de pago ajustando las variables `AI_GENERATOR_*`/`EMBEDDINGS_*` (sin tocar código).
 
 ---
 

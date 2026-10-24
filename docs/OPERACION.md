@@ -18,14 +18,14 @@ Requisito: Docker Desktop (o Docker Engine + Compose).
 ```
 
 El script crea `.env` (si no existe) con un `JWT_SECRET` aleatorio y levanta todo:
-PostgreSQL+pgvector, Ollama (descarga los modelos la primera vez), backend y frontend.
+PostgreSQL+pgvector, backend y frontend. La IA (generación, verificación y embeddings)
+usa APIs remotas (Gemini/Groq/OpenRouter) — no hay modelos locales que descargar.
 
 - Frontend: http://localhost
 - Backend / health: http://localhost:8080/health
 
-La primera vez Ollama descarga los modelos (`qwen2.5:7b`, `nomic-embed-text`); puede
-tardar varios minutos. El corpus legal base del RAG se siembra solo en el primer
-arranque (requiere que Ollama ya responda).
+El corpus legal base del RAG se siembra solo en el primer arranque (requiere
+`GEMINI_API_KEY` válida para generar los embeddings).
 
 ---
 
@@ -91,7 +91,7 @@ Política verificada en el código: **los logs no registran PII del cliente**.
 - La generación loguea solo `transactionId`, `tenantId`, `templateId` y longitudes
   de texto — nunca los campos del caso (`caseFields`: nombre, cédula, hechos).
 - La contraseña inicial se imprime en consola una vez, nunca al logger.
-- RAG/Ollama loguean conteos y tamaños, no contenido.
+- RAG/embeddings loguean conteos y tamaños, no contenido.
 
 Al agregar nuevo logging, **no** incluir nombres, cédulas, diagnósticos ni hechos del
 caso. Si se necesita trazar un documento, usar su `id` / `transactionId`.
@@ -116,25 +116,25 @@ Mientras no se cargue, la generación produce el texto sin membrete. Verificar q
 
 - **El backend no arranca:** revisar que `db` esté `healthy` (`docker compose ps`) y que
   la migración Flyway no haya fallado (`docker compose logs backend`).
-- **Generación falla con "servicio de IA no disponible":** el circuit breaker de Ollama
-  está abierto; revisar `http://localhost:8080/health` y los logs de `ollama`.
+- **Generación falla con "servicio de IA no disponible":** el circuit breaker del
+  generador (Gemini) está abierto; revisar `http://localhost:8080/health` y la
+  validez/cuota de `GEMINI_API_KEY`.
 - **El modo estricto responde `[texto no disponible en fuentes autorizadas]`:** el corpus
-  RAG no se sembró (Ollama no respondía al arrancar). Reiniciar el backend una vez que
-  Ollama esté arriba.
+  RAG no se sembró (faltaba `GEMINI_API_KEY` al arrancar). Configurar la clave y
+  reiniciar el backend; el corpus se siembra en el arranque.
 
 ---
 
 ## 7. Checklist de verificación e2e (ejecutar en una máquina con Docker)
 
-Esta migración se desarrolló en un entorno sin Docker/Postgres/Ollama. Antes de dar
+Esta migración se desarrolló en un entorno sin Docker/Postgres. Antes de dar
 el corte por bueno, ejecutar esta lista en un host con Docker. Marca cada punto.
 
 ### Infraestructura
 - [ ] `docker compose config --quiet` no reporta errores de sintaxis.
-- [ ] `.\start.ps1` (o `./start.sh`) levanta los 4 servicios + `ollama-init`.
-- [ ] `docker compose ps`: `db` en estado `healthy`; `ollama-init` terminó con éxito (exit 0).
-- [ ] `ollama-init` descargó los modelos: `docker compose exec ollama ollama list`
-      muestra `qwen2.5:7b` y `nomic-embed-text`.
+- [ ] `.\start.ps1` (o `./start.sh`) levanta los servicios (db, backend, frontend).
+- [ ] `docker compose ps`: `db` en estado `healthy`; `backend` y `frontend` `running`.
+- [ ] `.env` tiene `GEMINI_API_KEY` válida (y opcionalmente `GROQ_API_KEY`/`OPENROUTER_API_KEY`).
 
 ### Base de datos y migraciones
 - [ ] Flyway aplicó V1, V2 y V3 sin error: `docker compose logs backend | Select-String "Flyway|Migrating|Successfully applied"`.
@@ -167,9 +167,9 @@ el corte por bueno, ejecutar esta lista en un host con Docker. Marca cada punto.
 - [ ] Exportar a PDF conserva el membrete.
 
 ### Salud y resiliencia
-- [ ] `GET /health` reporta `UP` con detalle de DB, pgvector y Ollama.
-- [ ] Detener `ollama` y generar: el circuit breaker abre y el error al usuario es
-      claro en español (no stack trace). `/health` refleja el estado degradado.
+- [ ] `GET /health` reporta `UP` con detalle de DB, pgvector y `ai` (circuit del generador).
+- [ ] Con `GEMINI_API_KEY` inválida, generar: el error al usuario es claro en español
+      (no stack trace) y `/health` refleja el estado degradado del componente `ai`.
 
 ### Frontend
 - [ ] Login, wizard de 3 pasos, "Mis documentos" y páginas admin navegan sin errores.
@@ -194,7 +194,7 @@ real), cada plantilla debe tener asociados:
    el lenguaje de la firma en vez de parafrasearlo).
 
 El script `seed-rag` hace ambas cargas por cada plantilla. Requiere el stack
-arriba (backend + Ollama listos, porque el RAG genera embeddings con Ollama) y un
+arriba (backend listo y `GEMINI_API_KEY` válida, porque el RAG genera embeddings con Gemini) y un
 usuario con permiso `manage_templates` (rol admin o abogado).
 
 ```powershell
